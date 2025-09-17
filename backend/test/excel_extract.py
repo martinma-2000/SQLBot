@@ -209,7 +209,7 @@ class ExcelHeaderProcessor:
 
 # 使用示例
 if __name__ == "__main__":
-    excel_file = r"D:\文档-陕农信\测试文件示例\报表1 - 副本 (2).xlsx"
+    excel_file = r"D:\文档-陕农信\测试文件示例\报表1 - 副本.xlsx"
     
     try:
         # 创建处理器实例
@@ -219,6 +219,8 @@ if __name__ == "__main__":
 
         # 处理Excel文件
         df = processor.convert_multi_to_single_header(excel_file, header_rows=None)
+        if len(df) > 2:
+            df = df.iloc[:-2]  # 删除最后两行
         df['表格日期'] = _time
 
         for i in df.values:
