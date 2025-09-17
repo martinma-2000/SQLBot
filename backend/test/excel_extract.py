@@ -17,6 +17,24 @@ class ExcelHeaderProcessor:
         """
         self.separator = separator
 
+    def get_name_time(self, file_path, sheet_name=0):
+        """
+        获取Excel文件的前两行数据,表名和时间
+
+        参数:
+        file_path: Excel文件路径
+        sheet_name: 工作表名称或索引，默认为0
+
+        返回:
+        string: 表名,
+        string: 表格时间
+        """
+        df = pd.read_excel(file_path, nrows=1, sheet_name=sheet_name)
+        excel_name = [col for col in df.columns if not col.startswith('Unnamed')]
+        excel_time = [data for data in df.values[0] if pd.notna(data) and '日期' in data]
+        excel_time = excel_time[0].split('：')[-1]
+        return excel_name[0],excel_time
+
     def detect_header_rows(self, file_path, sheet_name=0):
         """
         自动检测Excel文件中的表头行数
@@ -31,8 +49,7 @@ class ExcelHeaderProcessor:
         header_rows: 表头行数
         """
         # 读取前10行数据用于分析
-        df_preview = pd.read_excel(file_path, nrows=10, header=None, sheet_name=sheet_name)
-        
+        df_preview = pd.read_excel(file_path, nrows=10, header=None, sheet_name=sheet_name,skiprows=[0,1])
         # 至少有1行表头（第一行）
         header_rows = 1
         
@@ -40,10 +57,9 @@ class ExcelHeaderProcessor:
         for index in range(1, len(df_preview)):
             row = df_preview.iloc[index]
             first_column_value = row.iloc[0]   # 第一列的值
-            second_column_value = row.iloc[1]  # 第二列的值
-            
-            # 如果第一列和第二列都不是NaN，说明这是数据行的开始
-            if pd.notna(first_column_value) and pd.notna(second_column_value):
+
+            # 如果第一列不是NaN，说明这是数据行的开始
+            if pd.notna(first_column_value):
                 header_rows = index  # 表头行数就是数据行的索引（因为索引从0开始）
                 break
         else:
@@ -140,14 +156,13 @@ class ExcelHeaderProcessor:
         # 如果检测到的表头行数为0，则至少保留1行作为表头
         if header_rows == 0:
             header_rows = 1
-            print("检测到表头行数为0，自动调整为1")
-        
+            #print("检测到表头行数为0，自动调整为1")
+        adjusted_header_rows = [i + 2 for i in range(header_rows)]  # 跳过前两行
         # 读取Excel文件的表头部分
-        header_df = pd.read_excel(file_path, header=list(range(header_rows)), sheet_name=sheet_name)
-        
+        header_df = pd.read_excel(file_path, header=adjusted_header_rows, sheet_name=sheet_name)
         # 获取列名（多级索引）
         multi_columns = header_df.columns
-        
+
         # 将多级表头转换为单级表头
         single_columns = []
         for col in multi_columns:
@@ -184,7 +199,7 @@ class ExcelHeaderProcessor:
                     single_columns.append(column_name)
         
         # 重新读取整个Excel文件
-        df = pd.read_excel(file_path, header=list(range(header_rows)), sheet_name=sheet_name)
+        df = pd.read_excel(file_path, header=list(range(header_rows)), sheet_name=sheet_name,skiprows=[0, 1])
         
         # 设置新的单级表头
         df.columns = single_columns
@@ -196,16 +211,19 @@ class ExcelHeaderProcessor:
 if __name__ == "__main__":
     excel_file = r"D:\文档-陕农信\测试文件示例\报表1 - 副本 (2).xlsx"
     
-    print("方法1：使用类方式处理")
     try:
         # 创建处理器实例
         processor = ExcelHeaderProcessor(separator="_")
-        
+
+        excel_name,_time = processor.get_name_time(excel_file)
+
         # 处理Excel文件
         df = processor.convert_multi_to_single_header(excel_file, header_rows=None)
-        
-        print("处理后的数据:")
-        print(df.head())
+        df['表格日期'] = _time
+        print(df.columns)
+        for i in df.values:
+            print(i)
+        df.to_excel(excel_name+"_单极表头.xlsx", index=False)
         
     except Exception as e:
         print(f"处理文件时出错: {e}")
