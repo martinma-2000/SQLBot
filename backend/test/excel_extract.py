@@ -220,7 +220,7 @@ if __name__ == "__main__":
         # 处理Excel文件
         df = processor.convert_multi_to_single_header(excel_file, header_rows=None)
         df['表格日期'] = _time
-        print(df.columns)
+
         for i in df.values:
             print(i)
         df.to_excel(excel_name+"_单极表头.xlsx", index=False)
