@@ -39,7 +39,16 @@ def get_data_engine():
 def create_table(session, table_name: str, fields: List[any]):
     # field type relation
     list = []
-    for f in fields:
+    comment_list = []
+
+    # 生成字母序列
+    def get_column_name(index):
+        if index < 26:
+            return chr(ord('A') + index)
+        else:
+            return chr(ord('A') + index // 26 - 1) + chr(ord('A') + index % 26)
+
+    for i, f in enumerate(fields):
         if "object" in f["type"]:
             f["relType"] = "text"
         elif "int" in f["type"]:
@@ -50,14 +59,24 @@ def create_table(session, table_name: str, fields: List[any]):
             f["relType"] = "timestamp"
         else:
             f["relType"] = "text"
-        list.append(f'"{f["name"]}" {f["relType"]}')
+        # 使用字母作为列名
+        column_name = get_column_name(i)
+        list.append(f'"{column_name}" {f["relType"]}')
+
+        # 保存原始列名作为注释
+        comment_list.append(f'COMMENT ON COLUMN "{table_name}"."{column_name}" IS \'{f["name"]}\'')
 
     sql = f"""
             CREATE TABLE "{table_name}" (
                 {", ".join(list)}
             );
             """
+    # 添加注释语句
+    comment_sql = ";\n".join(comment_list) + ";"
+
     session.execute(text(sql))
+    session.execute(text(comment_sql))
+    print(sql+comment_sql)
     session.commit()
 
 

@@ -307,6 +307,20 @@ def insert_pg(df, tableName, engine):
         if str(df.dtypes[i]) == 'uint64':
             df[str(df.columns[i])] = df[str(df.columns[i])].astype('string')
 
+    # 生成字母序列作为列名
+    def get_column_name(index):
+        if index < 26:
+            return chr(ord('A') + index)
+        else:
+            return chr(ord('A') + index // 26 - 1) + chr(ord('A') + index % 26)
+
+    # 保存原始列名用于注释
+    original_columns = df.columns.tolist()
+
+    # 重命名列名为字母序列
+    new_columns = [get_column_name(i) for i in range(len(df.columns))]
+    df.columns = new_columns
+
     conn = engine.raw_connection()
     cursor = conn.cursor()
     try:
@@ -316,6 +330,13 @@ def insert_pg(df, tableName, engine):
             if_exists='replace',
             index=False
         )
+
+        comment_queries = []
+        for i, col_name in enumerate(new_columns):
+            col_comment = original_columns[i].replace("'", "''")
+            comment_queries.append(f"COMMENT ON COLUMN \"{tableName}\".\"{col_name}\" IS '{col_comment}'")
+        for query in comment_queries:
+            cursor.execute(query)
         # trans csv
         output = StringIO()
         df.to_csv(output, sep='\t', header=False, index=False)
