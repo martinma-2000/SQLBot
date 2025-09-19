@@ -1,6 +1,6 @@
 import pandas as pd
 import re
-import merge_diff_time
+from test.merge_diff_time import concatenate_dataframes
 
 
 class ExcelHeaderProcessor:
@@ -205,10 +205,10 @@ class ExcelHeaderProcessor:
         # 设置新的单级表头
         df.columns = single_columns
 
-        excel_name, _time = processor.get_name_time(file_path)
+        excel_name, _time = self.get_name_time(file_path)
         if len(df) > 2:
             df = df.iloc[:-2]  # 删除最后两行
-        df['表格日期'] = processor.parse_chinese_date(_time)
+        df['表格日期'] = self.parse_chinese_date(_time)
         
         return df
 
