@@ -1,5 +1,6 @@
 import pandas as pd
 import re
+import merge_diff_time
 
 
 class ExcelHeaderProcessor:
@@ -203,6 +204,11 @@ class ExcelHeaderProcessor:
         
         # 设置新的单级表头
         df.columns = single_columns
+
+        excel_name, _time = processor.get_name_time(file_path)
+        if len(df) > 2:
+            df = df.iloc[:-2]  # 删除最后两行
+        df['表格日期'] = processor.parse_chinese_date(_time)
         
         return df
 
