@@ -206,10 +206,21 @@ class ExcelHeaderProcessor:
         
         return df
 
+    def parse_chinese_date(self,date_str):
+        try:
+            # 尝试按照 "YYYY年M月" 格式解析
+            formatted_str = date_str.replace('年', '-').replace('月', '')
+            return pd.Period(formatted_str, freq='M')
+        except Exception as e:
+            print(f"无法解析日期字符串: {date_str}, 错误: {e}")
+            return pd.NaT  # 返回 Not a Time 表示无效时间
+
+
+
 
 # 使用示例
 if __name__ == "__main__":
-    excel_file = r"D:\文档-陕农信\测试文件示例\报表1 - 副本.xlsx"
+    excel_file = r"D:\文档-陕农信\测试文件示例\27000099_202509_元_银行卡业务月度运营报表.xlsx"
     
     try:
         # 创建处理器实例
@@ -221,7 +232,8 @@ if __name__ == "__main__":
         df = processor.convert_multi_to_single_header(excel_file, header_rows=None)
         if len(df) > 2:
             df = df.iloc[:-2]  # 删除最后两行
-        df['表格日期'] = _time
+
+        df['表格日期'] = processor.parse_chinese_date(_time)
 
         for i in df.values:
             print(i)
