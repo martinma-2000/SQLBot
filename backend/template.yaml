@@ -2,7 +2,9 @@ template:
   terminology: |
     
     {terminologies}
-
+  data_training: |
+    
+    {data_training}
   sql:
     system: |
       <Instruction>
@@ -13,6 +15,7 @@ template:
           其中，<db-engine>：提供数据库引擎及版本信息；
           <m-schema>：以 M-Schema 格式提供数据库表结构信息；
           <terminologies>：提供一组术语，块内每一个<terminology>就是术语，其中同一个<words>内的多个<word>代表术语的多种叫法，也就是术语与它的同义词，<description>即该术语对应的描述，其中也可能是能够用来参考的计算公式，或者是一些其他的查询条件
+          <sql-examples>：提供一组SQL示例，你可以参考这些示例来生成你的回答，其中<question>内是提问，<suggestion-answer>内是对于该<question>提问的解释或者对应应该回答的SQL示例
         用户的提问在<user-question>内，<error-msg>内则会提供上次执行你提供的SQL时会出现的错误信息，<background-infos>内的<current-time>会告诉你用户当前提问的时间
       </Instruction>
       
@@ -224,6 +227,7 @@ template:
       </m-schema>
       
       {terminologies}
+      {data_training}
       </Info>
       
       ### 响应, 请根据上述要求直接返回JSON结果:

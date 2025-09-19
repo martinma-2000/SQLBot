@@ -1,7 +1,7 @@
 <template>
   <el-popover
-    :width="280"
     v-if="assistantStore.assistant && !assistantStore.pageEmbedded && assistantStore.type != 4"
+    :width="280"
     placement="bottom-start"
     popper-class="popover-chat_history popover-chat_history_small"
   >

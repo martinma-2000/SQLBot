@@ -172,11 +172,13 @@ class AiModelQuestion(BaseModel):
     filter: str = []
     sub_query: Optional[list[dict]] = None
     terminologies: str = ""
+    data_training: str = ""
     error_msg: str = ""
 
     def sql_sys_question(self):
         return get_sql_template()['system'].format(engine=self.engine, schema=self.db_schema, question=self.question,
-                                                   lang=self.lang, terminologies=self.terminologies)
+                                                   lang=self.lang, terminologies=self.terminologies,
+                                                   data_training=self.data_training)
 
     def sql_user_question(self, current_time: str):
         return get_sql_template()['user'].format(engine=self.engine, schema=self.db_schema, question=self.question,

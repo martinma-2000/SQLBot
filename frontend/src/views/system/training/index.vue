@@ -1,21 +1,25 @@
 <script lang="ts" setup>
 import { nextTick, onMounted, reactive, ref, unref } from 'vue'
 import icon_export_outlined from '@/assets/svg/icon_export_outlined.svg'
-import { professionalApi } from '@/api/professional'
+import { trainingApi } from '@/api/training'
 import { formatTimestamp } from '@/utils/date'
+import { datasourceApi } from '@/api/datasource'
 import ccmUpload from '@/assets/svg/icon_ccm-upload_outlined.svg'
 import icon_add_outlined from '@/assets/svg/icon_add_outlined.svg'
 import IconOpeEdit from '@/assets/svg/icon_edit_outlined.svg'
+import icon_copy_outlined from '@/assets/embedded/icon_copy_outlined.svg'
 import IconOpeDelete from '@/assets/svg/icon_delete.svg'
 import icon_searchOutline_outlined from '@/assets/svg/icon_search-outline_outlined.svg'
 import EmptyBackground from '@/views/dashboard/common/EmptyBackground.vue'
+import { useClipboard } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { cloneDeep } from 'lodash-es'
 
 interface Form {
   id?: string | null
-  word: string | null
-  other_words: string[]
+  question: string | null
+  datasource: string | null
+  datasource_name: string | null
   description: string | null
 }
 
@@ -24,13 +28,16 @@ const multipleSelectionAll = ref<any[]>([])
 const keywords = ref('')
 const oldKeywords = ref('')
 const searchLoading = ref(false)
+const { copy } = useClipboard({ legacy: true })
 
+const options = ref<any[]>([])
 const selectable = () => {
   return true
 }
 onMounted(() => {
   search()
 })
+
 const dialogFormVisible = ref<boolean>(false)
 const multipleTableRef = ref()
 const isIndeterminate = ref(true)
@@ -46,12 +53,21 @@ const dialogTitle = ref('')
 const updateLoading = ref(false)
 const defaultForm = {
   id: null,
-  word: null,
+  question: null,
   description: null,
-  other_words: [''],
+  datasource: null,
+  datasource_name: null,
 }
 const pageForm = ref<Form>(cloneDeep(defaultForm))
-
+const copyCode = () => {
+  copy(pageForm.value.description!)
+    .then(function () {
+      ElMessage.success(t('embedded.copy_successful'))
+    })
+    .catch(function () {
+      ElMessage.error(t('embedded.copy_successful'))
+    })
+}
 const cancelDelete = () => {
   handleToggleRowSelection(false)
   multipleSelectionAll.value = []
@@ -69,7 +85,7 @@ const exportBatchUser = () => {
       autofocus: false,
     }
   ).then(() => {
-    professionalApi.deleteEmbedded(multipleSelectionAll.value.map((ele) => ele.id)).then(() => {
+    trainingApi.deleteEmbedded(multipleSelectionAll.value.map((ele) => ele.id)).then(() => {
       ElMessage({
         type: 'success',
         message: t('dashboard.delete_success'),
@@ -88,7 +104,7 @@ const exportAllUser = () => {
     customClass: 'confirm-no_icon',
     autofocus: false,
   }).then(() => {
-    professionalApi.deleteEmbedded(multipleSelectionAll.value.map((ele) => ele.id)).then(() => {
+    trainingApi.deleteEmbedded(multipleSelectionAll.value.map((ele) => ele.id)).then(() => {
       ElMessage({
         type: 'success',
         message: t('dashboard.delete_success'),
@@ -100,7 +116,7 @@ const exportAllUser = () => {
 }
 const deleteBatchUser = () => {
   ElMessageBox.confirm(
-    t('professional.selected_2_terms', { msg: multipleSelectionAll.value.length }),
+    t('training.training_data_items', { msg: multipleSelectionAll.value.length }),
     {
       confirmButtonType: 'danger',
       confirmButtonText: t('dashboard.delete'),
@@ -109,7 +125,7 @@ const deleteBatchUser = () => {
       autofocus: false,
     }
   ).then(() => {
-    professionalApi.deleteEmbedded(multipleSelectionAll.value.map((ele) => ele.id)).then(() => {
+    trainingApi.deleteEmbedded(multipleSelectionAll.value.map((ele) => ele.id)).then(() => {
       ElMessage({
         type: 'success',
         message: t('dashboard.delete_success'),
@@ -120,14 +136,14 @@ const deleteBatchUser = () => {
   })
 }
 const deleteHandler = (row: any) => {
-  ElMessageBox.confirm(t('professional.the_term_gmv', { msg: row.word }), {
+  ElMessageBox.confirm(t('training.sales_this_year', { msg: row.question }), {
     confirmButtonType: 'danger',
     confirmButtonText: t('dashboard.delete'),
     cancelButtonText: t('common.cancel'),
     customClass: 'confirm-no_icon',
     autofocus: false,
   }).then(() => {
-    professionalApi.deleteEmbedded([row.id]).then(() => {
+    trainingApi.deleteEmbedded([row.id]).then(() => {
       multipleSelectionAll.value = multipleSelectionAll.value.filter((ele) => row.id !== ele.id)
       ElMessage({
         type: 'success',
@@ -179,8 +195,8 @@ const handleToggleRowSelection = (check: boolean = true) => {
 const search = () => {
   searchLoading.value = true
   oldKeywords.value = keywords.value
-  professionalApi
-    .getList(pageInfo.currentPage, pageInfo.pageSize, { word: keywords.value })
+  trainingApi
+    .getList(pageInfo.currentPage, pageInfo.pageSize, { question: keywords.value })
     .then((res) => {
       toggleRowLoading.value = true
       fieldList.value = res.data
@@ -198,34 +214,41 @@ const search = () => {
 const termFormRef = ref()
 
 const rules = {
-  word: [
+  question: [
     {
       required: true,
-      message: t('datasource.please_enter') + t('common.empty') + t('professional.term_name'),
+      message: t('datasource.please_enter') + t('common.empty') + t('training.problem_description'),
+    },
+  ],
+  datasource: [
+    {
+      required: true,
+      message: t('datasource.Please_select') + t('common.empty') + t('ds.title'),
     },
   ],
   description: [
     {
       required: true,
-      message:
-        t('datasource.please_enter') + t('common.empty') + t('professional.term_description'),
+      message: t('datasource.please_enter') + t('common.empty') + t('training.sample_sql'),
     },
   ],
+}
+
+const list = () => {
+  datasourceApi.list().then((res: any) => {
+    options.value = res || []
+  })
 }
 
 const saveHandler = () => {
   termFormRef.value.validate((res: any) => {
     if (res) {
-      const arr = [...pageForm.value.other_words.filter((ele: any) => !!ele), pageForm.value.word]
-      if (arr.length !== new Set(arr).size) {
-        return ElMessage.error(t('professional.cannot_be_repeated'))
-      }
       const obj = unref(pageForm)
       if (!obj.id) {
         delete obj.id
       }
       updateLoading.value = true
-      professionalApi
+      trainingApi
         .updateEmbedded(obj)
         .then(() => {
           ElMessage({
@@ -246,13 +269,10 @@ const editHandler = (row: any) => {
   pageForm.value.id = null
   if (row) {
     pageForm.value = cloneDeep(row)
-    if (!pageForm.value.other_words.length) {
-      pageForm.value.other_words = ['']
-    }
   }
-  dialogTitle.value = row?.id
-    ? t('professional.editing_terminology')
-    : t('professional.create_new_term')
+  list()
+
+  dialogTitle.value = row?.id ? t('training.edit_training_data') : t('training.add_training_data')
   dialogFormVisible.value = true
 }
 
@@ -282,21 +302,17 @@ const onRowFormClose = () => {
   pageForm.value = cloneDeep(defaultForm)
   rowInfoDialog.value = false
 }
-
-const deleteHandlerItem = (idx: number) => {
-  pageForm.value.other_words = pageForm.value.other_words!.filter((_, index) => index !== idx)
-}
 </script>
 
 <template>
-  <div v-loading="searchLoading" class="professional">
+  <div v-loading="searchLoading" class="training">
     <div class="tool-left">
-      <span class="page-title">{{ $t('professional.professional_terminology') }}</span>
+      <span class="page-title">{{ $t('training.data_training') }}</span>
       <div>
         <el-input
           v-model="keywords"
           style="width: 240px; margin-right: 12px"
-          :placeholder="$t('professional.search_term')"
+          :placeholder="$t('training.search_problem')"
           clearable
           @blur="search"
         >
@@ -324,7 +340,7 @@ const deleteHandlerItem = (idx: number) => {
           <template #icon>
             <icon_add_outlined></icon_add_outlined>
           </template>
-          {{ $t('professional.create_new_term') }}
+          {{ $t('training.add_training_data') }}
         </el-button>
       </div>
     </div>
@@ -342,28 +358,18 @@ const deleteHandlerItem = (idx: number) => {
           @selection-change="handleSelectionChange"
         >
           <el-table-column :selectable="selectable" type="selection" width="55" />
-          <el-table-column prop="word" :label="$t('professional.term_name')" width="280">
-            <template #default="scope">
-              {{ scope.row.word }}
-              <span style="display: inline-block; width: 8px; height: 1px"></span>
-              {{
-                scope.row.other_words.filter((ele: any) => !!ele).length
-                  ? `(${scope.row.other_words.join(',')})`
-                  : ''
-              }}
-            </template>
+          <el-table-column prop="question" :label="$t('training.problem_description')" width="280">
           </el-table-column>
-          <el-table-column
-            prop="description"
-            :label="$t('professional.term_description')"
-            min-width="240"
-            ><template #default="scope">
+          <el-table-column prop="description" :label="$t('training.sample_sql')" min-width="240">
+            <template #default="scope">
               <div class="field-comment_d">
                 <span :title="scope.row.description" class="notes-in_table">{{
                   scope.row.description
                 }}</span>
               </div>
             </template>
+          </el-table-column>
+          <el-table-column prop="datasource_name" :label="$t('ds.title')" min-width="240">
           </el-table-column>
           <el-table-column
             prop="create_time"
@@ -404,7 +410,7 @@ const deleteHandlerItem = (idx: number) => {
           <template #empty>
             <EmptyBackground
               v-if="!oldKeywords && !fieldList.length"
-              :description="$t('professional.no_term')"
+              :description="$t('chat.no_data')"
               img-type="noneWhite"
             />
 
@@ -460,7 +466,7 @@ const deleteHandlerItem = (idx: number) => {
     destroy-on-close
     size="600px"
     :before-close="onFormClose"
-    modal-class="professional-add_drawer"
+    modal-class="training-add_drawer"
   >
     <el-form
       ref="termFormRef"
@@ -471,18 +477,18 @@ const deleteHandlerItem = (idx: number) => {
       class="form-content_error"
       @submit.prevent
     >
-      <el-form-item prop="word" :label="t('professional.term_name')">
+      <el-form-item prop="question" :label="t('training.problem_description')">
         <el-input
-          v-model="pageForm.word"
+          v-model="pageForm.question"
           :placeholder="
-            $t('datasource.please_enter') + $t('common.empty') + $t('professional.term_name')
+            $t('datasource.please_enter') + $t('common.empty') + $t('training.problem_description')
           "
           autocomplete="off"
           maxlength="50"
           clearable
         />
       </el-form-item>
-      <el-form-item prop="description" :label="t('professional.term_description')">
+      <el-form-item prop="description" :label="t('training.sample_sql')">
         <el-input
           v-model="pageForm.description"
           :placeholder="$t('datasource.please_enter')"
@@ -491,48 +497,15 @@ const deleteHandlerItem = (idx: number) => {
         />
       </el-form-item>
 
-      <el-form-item>
-        <template #label>
-          <div style="display: flex; align-items: center">
-            <span>{{ t('professional.synonyms') }}</span>
-            <span class="btn" @click="pageForm.other_words.push('')">
-              <el-icon style="margin-right: 4px" size="16">
-                <icon_add_outlined></icon_add_outlined>
-              </el-icon>
-              {{ $t('model.add') }}
-            </span>
-          </div>
-        </template>
-        <div class="synonyms-list">
-          <el-scrollbar>
-            <div v-for="(_, index) in pageForm.other_words" :key="index" class="scrollbar-item">
-              <el-input
-                v-model="pageForm.other_words[index]"
-                style="width: 528px"
-                :placeholder="
-                  $t('datasource.please_enter') + $t('common.empty') + $t('professional.synonyms')
-                "
-                maxlength="100"
-                clearable
-              />
-              <el-tooltip
-                :offset="14"
-                effect="dark"
-                :content="$t('dashboard.delete')"
-                placement="top"
-              >
-                <el-icon
-                  class="hover-icon_with_bg"
-                  size="16"
-                  style="color: #646a73"
-                  @click.stop="deleteHandlerItem(index)"
-                >
-                  <IconOpeDelete></IconOpeDelete>
-                </el-icon>
-              </el-tooltip>
-            </div>
-          </el-scrollbar>
-        </div>
+      <el-form-item prop="datasource" :label="t('ds.title')">
+        <el-select
+          v-model="pageForm.datasource"
+          filterable
+          :placeholder="$t('datasource.Please_select') + $t('common.empty') + $t('ds.title')"
+          style="width: 100%"
+        >
+          <el-option v-for="item in options" :key="item.id" :label="item.name" :value="item.id" />
+        </el-select>
       </el-form-item>
     </el-form>
     <template #footer>
@@ -550,22 +523,29 @@ const deleteHandlerItem = (idx: number) => {
     destroy-on-close
     size="600px"
     :before-close="onRowFormClose"
-    modal-class="professional-term_drawer"
+    modal-class="training-term_drawer"
   >
     <el-form label-width="180px" label-position="top" class="form-content_error" @submit.prevent>
-      <el-form-item :label="t('professional.business_term')">
+      <el-form-item :label="t('training.problem_description')">
         <div class="content">
-          {{ pageForm.word }}
+          {{ pageForm.question }}
         </div>
       </el-form-item>
-      <el-form-item :label="t('professional.synonyms')">
-        <div class="content">
-          {{ pageForm.other_words.join(',') }}
-        </div>
-      </el-form-item>
-      <el-form-item :label="t('professional.term_description')">
-        <div class="content">
+      <el-form-item :label="t('training.sample_sql')">
+        <div style="white-space: pre-wrap" class="content">
           {{ pageForm.description }}
+        </div>
+        <div class="copy-icon">
+          <el-tooltip :offset="12" effect="dark" :content="t('datasource.copy')" placement="top">
+            <el-icon class="hover-icon_with_bg" style="cursor: pointer" size="16" @click="copyCode">
+              <icon_copy_outlined></icon_copy_outlined>
+            </el-icon>
+          </el-tooltip>
+        </div>
+      </el-form-item>
+      <el-form-item :label="t('ds.title')">
+        <div class="content">
+          {{ pageForm.datasource_name }}
         </div>
       </el-form-item>
     </el-form>
@@ -573,7 +553,7 @@ const deleteHandlerItem = (idx: number) => {
 </template>
 
 <style lang="less" scoped>
-.professional {
+.training {
   height: 100%;
   position: relative;
 
@@ -630,6 +610,7 @@ const deleteHandlerItem = (idx: number) => {
         overflow: hidden;
         text-overflow: ellipsis;
         word-break: break-word;
+        white-space: pre-wrap;
       }
       .ed-icon {
         color: #646a73;
@@ -745,7 +726,7 @@ const deleteHandlerItem = (idx: number) => {
 }
 </style>
 <style lang="less">
-.professional-term_drawer {
+.training-term_drawer {
   .ed-form-item--label-top .ed-form-item__label {
     margin-bottom: 4px;
   }
@@ -759,48 +740,17 @@ const deleteHandlerItem = (idx: number) => {
     line-height: 22px;
     word-break: break-all;
   }
+
+  .copy-icon {
+    position: absolute;
+    right: 0;
+    top: -27px;
+  }
 }
 
-.professional-add_drawer {
+.training-add_drawer {
   .ed-textarea__inner {
     line-height: 22px;
-  }
-
-  .ed-form-item__label:has(.btn) {
-    padding-right: 0;
-    width: 100%;
-  }
-
-  .scrollbar-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding-right: 4px;
-    margin-bottom: 8px;
-  }
-
-  .synonyms-list {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: calc(100% + 4px);
-    height: calc(100vh - 390px);
-  }
-
-  .btn {
-    margin-left: auto;
-    height: 26px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0 4px;
-    border-radius: 6px;
-    margin-right: -4px;
-    cursor: pointer;
-
-    &:hover {
-      background-color: #1f23291a;
-    }
   }
 }
 </style>

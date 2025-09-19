@@ -11,7 +11,6 @@ from apps.datasource.utils.utils import aes_decrypt
 from apps.db.constant import DB
 from apps.db.db import get_tables, get_fields, exec_sql, check_connection
 from apps.db.engine import get_engine_config, get_engine_conn
-from apps.db.type import db_type_relation
 from common.core.deps import SessionDep, CurrentUser, Trans
 from common.utils.utils import deepcopy_ignore_extra
 from .table import get_tables_by_ds_id
@@ -70,7 +69,7 @@ def create_ds(session: SessionDep, trans: Trans, user: CurrentUser, create_ds: C
     ds.create_by = user.id
     ds.oid = user.oid if user.oid is not None else 1
     ds.status = "Success"
-    ds.type_name = db_type_relation()[ds.type]
+    ds.type_name = DB.get_db(ds.type).db_name
     record = CoreDatasource(**ds.model_dump())
     session.add(record)
     session.flush()
@@ -297,7 +296,7 @@ def preview(session: SessionDep, current_user: CurrentUser, id: int, data: Table
         sql = f"""SELECT "{'", "'.join(fields)}" FROM "{data.table.table_name}" 
             {where} 
             LIMIT 100"""
-    return exec_sql(ds, sql, True, [data.table.table_name])
+    return exec_sql(ds, sql, True)
 
 
 def fieldEnum(session: SessionDep, id: int):
@@ -313,7 +312,7 @@ def fieldEnum(session: SessionDep, id: int):
 
     db = DB.get_db(ds.type)
     sql = f"""SELECT DISTINCT {db.prefix}{field.field_name}{db.suffix} FROM {db.prefix}{table.table_name}{db.suffix}"""
-    res = exec_sql(ds, sql, True, [table.table_name])
+    res = exec_sql(ds, sql, True)
     return [item.get(res.get('fields')[0]) for item in res.get('data')]
 
 

@@ -64,7 +64,7 @@
                   :name="loginForm.name"
                   :slogan="loginForm.slogan"
                   :web="web"
-                  :showSlogan="loginForm.showSlogan"
+                  :show-slogan="loginForm.showSlogan"
                   :bg="bg"
                   :login="login"
                   :is-blue="isBlue"

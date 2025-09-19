@@ -15,10 +15,10 @@ from apps.api import api_router
 from apps.system.crud.aimodel_manage import async_model_info
 from apps.system.crud.assistant import init_dynamic_cors
 from apps.system.middleware.auth import TokenMiddleware
-from apps.terminology.curd.terminology import fill_empty_embeddings
 from common.core.config import settings
 from common.core.response_middleware import ResponseMiddleware, exception_handler
 from common.core.sqlbot_cache import init_sqlbot_cache
+from common.utils.embedding_threads import fill_empty_terminology_embeddings, fill_empty_data_training_embeddings
 from common.utils.utils import SQLBotLogUtil
 
 
@@ -27,8 +27,12 @@ def run_migrations():
     command.upgrade(alembic_cfg, "head")
 
 
-def init_embedding_data():
-    fill_empty_embeddings()
+def init_terminology_embedding_data():
+    fill_empty_terminology_embeddings()
+
+
+def init_data_training_embedding_data():
+    fill_empty_data_training_embeddings()
 
 
 @asynccontextmanager
@@ -36,7 +40,8 @@ async def lifespan(app: FastAPI):
     run_migrations()
     init_sqlbot_cache()
     init_dynamic_cors(app)
-    init_embedding_data()
+    init_terminology_embedding_data()
+    init_data_training_embedding_data()
     SQLBotLogUtil.info("✅ SQLBot 初始化完成")
     await sqlbot_xpack.core.clean_xpack_cache()
     await async_model_info()  # 异步加密已有模型的密钥和地址

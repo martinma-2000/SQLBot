@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import delIcon from '@/assets/svg/icon_delete.svg'
+import icon_copy_outlined from '@/assets/embedded/icon_copy_outlined.svg'
 import icon_more_outlined from '@/assets/svg/icon_more_outlined.svg'
 import icon_embedded_outlined from '@/assets/embedded/icon_embedded_outlined.svg'
 import IconOpeEdit from '@/assets/svg/icon_edit_outlined.svg'
@@ -7,6 +8,8 @@ import Lock from '@/assets/embedded/LOGO-sql.png'
 import { useAppearanceStoreWithOut } from '@/stores/appearance'
 import LOGO from '@/assets/svg/logo-custom_small.svg'
 import { ref, unref, computed } from 'vue'
+import { useClipboard } from '@vueuse/core'
+import { useI18n } from 'vue-i18n'
 import { ClickOutside as vClickOutside } from 'element-plus-secondary'
 import icon_style_set_outlined from '@/assets/svg/icon_style-set_outlined.svg'
 
@@ -26,7 +29,8 @@ const props = withDefaults(
     logo: '',
   }
 )
-
+const { copy } = useClipboard({ legacy: true })
+const { t } = useI18n()
 const emits = defineEmits(['edit', 'del', 'embedded', 'ui'])
 const appearanceStore = useAppearanceStoreWithOut()
 
@@ -45,7 +49,15 @@ const handleDel = () => {
 const handleEmbedded = () => {
   emits('embedded')
 }
-
+const copyCode = () => {
+  copy(props.id)
+    .then(function () {
+      ElMessage.success(t('embedded.copy_successful'))
+    })
+    .catch(function () {
+      ElMessage.error(t('embedded.copy_successful'))
+    })
+}
 const buttonRef = ref()
 const popoverRef = ref()
 const onClickOutside = () => {
@@ -66,7 +78,17 @@ const pageLogo = computed(() => {
         <LOGO></LOGO>
       </el-icon>
       <img v-else :src="Lock" width="32px" height="32px" />
-      <span class="name ellipsis" :title="name">{{ name }}</span>
+      <div class="id-name">
+        <span class="name ellipsis" :title="name">{{ name }}</span>
+        <div class="id-copy">
+          <span class="id ellipsis" :title="id">{{ id }}</span>
+          <el-tooltip :offset="12" effect="dark" :content="t('datasource.copy')" placement="top">
+            <el-icon style="cursor: pointer" size="16" @click="copyCode">
+              <icon_copy_outlined></icon_copy_outlined>
+            </el-icon>
+          </el-tooltip>
+        </div>
+      </div>
       <span class="default" :class="isBase && 'is-base'">{{
         isBase ? $t('embedded.basic_application') : $t('embedded.advanced_application')
       }}</span>
@@ -120,7 +142,7 @@ const pageLogo = computed(() => {
 <style lang="less" scoped>
 .card {
   width: 100%;
-  height: 168px;
+  height: 180px;
   border: 1px solid #dee0e3;
   padding: 16px;
   border-radius: 12px;
@@ -135,12 +157,29 @@ const pageLogo = computed(() => {
     display: flex;
     align-items: center;
     margin-bottom: 12px;
-    .name {
+    .id-name {
       margin-left: 12px;
+      max-width: calc(100% - 115px);
+      display: flex;
+      flex-direction: column;
+
+      .id-copy {
+        display: flex;
+        align-items: center;
+        .id {
+          font-weight: 400;
+          font-size: 12px;
+          line-height: 20px;
+          color: #646a73;
+          margin-right: 8px;
+        }
+      }
+    }
+    .name {
       font-weight: 500;
       font-size: 16px;
       line-height: 24px;
-      max-width: calc(100% - 115px);
+      max-width: 100%;
     }
 
     .default {
@@ -152,6 +191,7 @@ const pageLogo = computed(() => {
       line-height: 20px;
       background: #ff880033;
       color: #d97400;
+      margin-top: -18px;
 
       &.is-base {
         background: var(--ed-color-primary-33, #1cba9033);

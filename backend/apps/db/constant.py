@@ -13,19 +13,20 @@ class ConnectType(Enum):
 
 
 class DB(Enum):
-    mysql = ('mysql', '`', '`', ConnectType.sqlalchemy)
-    sqlServer = ('sqlServer', '[', ']', ConnectType.sqlalchemy)
-    pg = ('pg', '"', '"', ConnectType.sqlalchemy)
-    excel = ('excel', '"', '"', ConnectType.sqlalchemy)
-    oracle = ('oracle', '"', '"', ConnectType.sqlalchemy)
-    ck = ('ck', '"', '"', ConnectType.sqlalchemy)
-    dm = ('dm', '"', '"', ConnectType.py_driver)
-    doris = ('doris', '`', '`', ConnectType.py_driver)
-    redshift = ('redshift', '"', '"', ConnectType.py_driver)
-    es = ('es', '"', '"', ConnectType.py_driver)
+    mysql = ('mysql', 'MySQL', '`', '`', ConnectType.sqlalchemy)
+    sqlServer = ('sqlServer', 'Microsoft SQL Server', '[', ']', ConnectType.sqlalchemy)
+    pg = ('pg', 'PostgreSQL', '"', '"', ConnectType.sqlalchemy)
+    excel = ('excel', 'Excel/CSV', '"', '"', ConnectType.sqlalchemy)
+    oracle = ('oracle', 'Oracle', '"', '"', ConnectType.sqlalchemy)
+    ck = ('ck', 'ClickHouse', '"', '"', ConnectType.sqlalchemy)
+    dm = ('dm', '达梦', '"', '"', ConnectType.py_driver)
+    doris = ('doris', 'Apache Doris', '`', '`', ConnectType.py_driver)
+    redshift = ('redshift', 'AWS Redshift', '"', '"', ConnectType.py_driver)
+    es = ('es', 'Elasticsearch', '"', '"', ConnectType.py_driver)
 
-    def __init__(self, type, prefix, suffix, connect_type: ConnectType):
+    def __init__(self, type, db_name, prefix, suffix, connect_type: ConnectType):
         self.type = type
+        self.db_name = db_name
         self.prefix = prefix
         self.suffix = suffix
         self.connect_type = connect_type

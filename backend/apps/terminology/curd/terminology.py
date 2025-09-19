@@ -1,23 +1,21 @@
 import datetime
 import logging
 import traceback
-from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
 from xml.dom.minidom import parseString
 
 import dicttoxml
 from sqlalchemy import and_, or_, select, func, delete, update, union
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.orm import aliased
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm.session import Session
 
 from apps.ai_model.embedding import EmbeddingModelCache
 from apps.template.generate_chart.generator import get_base_terminology_template
 from apps.terminology.models.terminology_model import Terminology, TerminologyInfo
 from common.core.config import settings
 from common.core.deps import SessionDep, Trans
-
-executor = ThreadPoolExecutor(max_workers=200)
+from common.utils.embedding_threads import run_save_terminology_embeddings
 
 
 def page_terminology(session: SessionDep, current_page: int = 1, page_size: int = 10, name: Optional[str] = None,
@@ -183,7 +181,7 @@ def create_terminology(session: SessionDep, info: TerminologyInfo, oid: int, tra
     session.commit()
 
     # embedding
-    run_save_embeddings([result.id])
+    run_save_terminology_embeddings([result.id])
 
     return result.id
 
@@ -240,7 +238,7 @@ def update_terminology(session: SessionDep, info: TerminologyInfo, oid: int, tra
     session.commit()
 
     # embedding
-    run_save_embeddings([info.id])
+    run_save_terminology_embeddings([info.id])
 
     return info.id
 
@@ -251,37 +249,31 @@ def delete_terminology(session: SessionDep, ids: list[int]):
     session.commit()
 
 
-def run_save_embeddings(ids: List[int]):
-    executor.submit(save_embeddings, ids)
+# def run_save_embeddings(ids: List[int]):
+#     executor.submit(save_embeddings, ids)
+#
+#
+# def fill_empty_embeddings():
+#     executor.submit(run_fill_empty_embeddings)
 
 
-def fill_empty_embeddings():
-    executor.submit(run_fill_empty_embeddings)
-
-
-def run_fill_empty_embeddings():
+def run_fill_empty_embeddings(session: Session):
     if not settings.EMBEDDING_ENABLED:
         return
-    engine = create_engine(str(settings.SQLALCHEMY_DATABASE_URI))
-    session_maker = sessionmaker(bind=engine)
-    session = session_maker()
     stmt1 = select(Terminology.id).where(and_(Terminology.embedding.is_(None), Terminology.pid.is_(None)))
     stmt2 = select(Terminology.pid).where(and_(Terminology.embedding.is_(None), Terminology.pid.isnot(None))).distinct()
     combined_stmt = union(stmt1, stmt2)
     results = session.execute(combined_stmt).scalars().all()
-    save_embeddings(results)
+    save_embeddings(session, results)
 
 
-def save_embeddings(ids: List[int]):
+def save_embeddings(session: Session, ids: List[int]):
     if not settings.EMBEDDING_ENABLED:
         return
 
     if not ids or len(ids) == 0:
         return
     try:
-        engine = create_engine(str(settings.SQLALCHEMY_DATABASE_URI))
-        session_maker = sessionmaker(bind=engine)
-        session = session_maker()
 
         _list = session.query(Terminology).filter(or_(Terminology.id.in_(ids), Terminology.pid.in_(ids))).all()
 
@@ -308,9 +300,9 @@ FROM
 ( 1 - (embedding <=> :embedding_array) ) AS similarity
 FROM terminology AS child
 ) TEMP
-WHERE similarity > {settings.EMBEDDING_SIMILARITY} and oid = :oid
+WHERE similarity > {settings.EMBEDDING_TERMINOLOGY_SIMILARITY} and oid = :oid
 ORDER BY similarity DESC
-LIMIT {settings.EMBEDDING_TOP_COUNT}
+LIMIT {settings.EMBEDDING_TERMINOLOGY_TOP_COUNT}
 """
 
 

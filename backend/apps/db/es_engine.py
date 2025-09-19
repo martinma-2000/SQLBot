@@ -2,6 +2,7 @@
 # Date: 2025/9/9
 
 import json
+from base64 import b64encode
 
 import requests
 from elasticsearch import Elasticsearch
@@ -59,28 +60,55 @@ def get_es_fields(conf: DatasourceConf, table_name: str):
     return res
 
 
-def get_es_data(conf: DatasourceConf, sql: str, table_name: str):
-    r = requests.post(f"{conf.host}/_sql/translate", json={"query": sql})
-    # print(json.dumps(r.json()))
+# def get_es_data(conf: DatasourceConf, sql: str, table_name: str):
+#     r = requests.post(f"{conf.host}/_sql/translate", json={"query": sql})
+#     if r.json().get('error'):
+#         print(json.dumps(r.json()))
+#
+#     es_client = get_es_connect(conf)
+#     response = es_client.search(
+#         index=table_name,
+#         body=json.dumps(r.json())
+#     )
+#
+#     # print(response)
+#     fields = get_es_fields(conf, table_name)
+#     res = []
+#     for hit in response.get('hits').get('hits'):
+#         item = []
+#         if 'fields' in hit:
+#             result = hit.get('fields')  # {'title': ['Python'], 'age': [30]}
+#             for field in fields:
+#                 v = result.get(field[0])
+#                 item.append(v[0]) if v else item.append(None)
+#             res.append(tuple(item))
+#             # print(hit['fields']['title'][0])
+#         # elif '_source' in hit:
+#         #     print(hit.get('_source'))
+#     return res, fields
 
-    es_client = get_es_connect(conf)
-    response = es_client.search(
-        index=table_name,
-        body=json.dumps(r.json())
-    )
 
-    # print(response)
-    fields = get_es_fields(conf, table_name)
-    res = []
-    for hit in response.get('hits').get('hits'):
-        item = []
-        if 'fields' in hit:
-            result = hit.get('fields')  # {'title': ['Python'], 'age': [30]}
-            for field in fields:
-                v = result.get(field[0])
-                item.append(v[0]) if v else item.append(None)
-            res.append(tuple(item))
-            # print(hit['fields']['title'][0])
-        # elif '_source' in hit:
-        #     print(hit.get('_source'))
-    return res, fields
+def get_es_data_by_http(conf: DatasourceConf, sql: str):
+    url = conf.host
+    while url.endswith('/'):
+        url = url[:-1]
+
+    host = f'{url}/_sql?format=json'
+    username = f"{conf.username}"
+    password = f"{conf.password}"
+
+    credentials = f"{username}:{password}"
+    encoded_credentials = b64encode(credentials.encode()).decode()
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Basic {encoded_credentials}"
+    }
+
+    response = requests.post(host, data=json.dumps({"query": sql}), headers=headers)
+
+    # print(response.json())
+    res = response.json()
+    fields = res.get('columns')
+    result = res.get('rows')
+    return result, fields

@@ -16,6 +16,7 @@ import assistant from '@/views/embedded/index.vue'
 import EmbeddedPage from '@/views/embedded/page.vue'
 import Member from '@/views/system/member/index.vue'
 import Professional from '@/views/system/professional/index.vue'
+import Training from '@/views/system/training/index.vue'
 import Appearance from '@/views/system/appearance/index.vue'
 import Permission from '@/views/system/permission/index.vue'
 import User from '@/views/system/user/User.vue'
@@ -111,6 +112,12 @@ export const routes = [
         name: 'professional',
         component: Professional,
         meta: { title: t('professional.professional_terminology') },
+      },
+      {
+        path: '/set/training',
+        name: 'training',
+        component: Training,
+        meta: { title: t('training.data_training') },
       },
     ],
   },

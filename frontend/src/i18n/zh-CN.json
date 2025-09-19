@@ -6,6 +6,18 @@
     "Dashboard": "仪表盘",
     "AI Model Configuration": "模型配置"
   },
+  "training": {
+    "data_training": "SQL 示例库",
+    "problem_description": "问题描述",
+    "sample_sql": "示例 SQL",
+    "search_problem": "搜索问题",
+    "add_training_data": "添加示例 SQL",
+    "training_data_details": "示例 SQL 详情",
+    "training_data_items": "是否删除选中的 {msg} 条示例 SQL？",
+    "sql_statement": "SQL 语句",
+    "edit_training_data": "编辑示例 SQL",
+    "sales_this_year": "是否删除示例 SQL：{msg}？"
+  },
   "professional": {
     "cannot_be_repeated": "术语名称，同义词不能重复",
     "code_for_debugging": "复制以下代码进行调试",

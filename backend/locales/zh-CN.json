@@ -41,6 +41,11 @@
   "i18n_terminology": {
     "terminology_not_exists": "该术语不存在",
     "cannot_be_repeated": "术语名称，同义词不能重复",
-    "exists_in_db":  "术语名称，同义词已存在"
+    "exists_in_db": "术语名称，同义词已存在"
+  },
+  "i18n_data_training": {
+    "datasource_cannot_be_none": "数据源不能为空",
+    "data_training_not_exists": "该示例不存在",
+    "exists_in_db": "该问题已存在"
   }
 }

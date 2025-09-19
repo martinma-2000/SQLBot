@@ -24,7 +24,7 @@ from apps.system.schemas.system_schema import AssistantOutDsSchema
 from common.core.deps import Trans
 from common.utils.utils import SQLBotLogUtil
 from fastapi import HTTPException
-from apps.db.es_engine import get_es_connect, get_es_index, get_es_fields, get_es_data
+from apps.db.es_engine import get_es_connect, get_es_index, get_es_fields, get_es_data_by_http
 
 
 def get_uri(ds: CoreDatasource) -> str:
@@ -233,12 +233,12 @@ def get_schema(ds: CoreDatasource):
         with get_session(ds) as session:
             sql: str = ''
             if ds.type == "sqlServer":
-                sql = f"""select name from sys.schemas"""
+                sql = """select name from sys.schemas"""
             elif ds.type == "pg" or ds.type == "excel":
                 sql = """SELECT nspname
                          FROM pg_namespace"""
             elif ds.type == "oracle":
-                sql = f"""select * from all_users"""
+                sql = """select * from all_users"""
             with session.execute(text(sql)) as result:
                 res = result.fetchall()
                 res_list = [item[0] for item in res]
@@ -247,7 +247,7 @@ def get_schema(ds: CoreDatasource):
         if ds.type == 'dm':
             with dmPython.connect(user=conf.username, password=conf.password, server=conf.host,
                                   port=conf.port) as conn, conn.cursor() as cursor:
-                cursor.execute(f"""select OBJECT_NAME from dba_objects where object_type='SCH'""", timeout=conf.timeout)
+                cursor.execute("""select OBJECT_NAME from dba_objects where object_type='SCH'""", timeout=conf.timeout)
                 res = cursor.fetchall()
                 res_list = [item[0] for item in res]
                 return res_list
@@ -255,7 +255,7 @@ def get_schema(ds: CoreDatasource):
             with redshift_connector.connect(host=conf.host, port=conf.port, database=conf.database, user=conf.username,
                                             password=conf.password,
                                             timeout=conf.timeout) as conn, conn.cursor() as cursor:
-                cursor.execute(f"""SELECT nspname FROM pg_namespace""")
+                cursor.execute("""SELECT nspname FROM pg_namespace""")
                 res = cursor.fetchall()
                 res_list = [item[0] for item in res]
                 return res_list
@@ -264,10 +264,10 @@ def get_schema(ds: CoreDatasource):
 def get_tables(ds: CoreDatasource):
     conf = DatasourceConf(**json.loads(aes_decrypt(ds.configuration))) if ds.type != "excel" else get_engine_config()
     db = DB.get_db(ds.type)
-    sql = get_table_sql(ds, conf, get_version(ds))
+    sql, sql_param = get_table_sql(ds, conf, get_version(ds))
     if db.connect_type == ConnectType.sqlalchemy:
         with get_session(ds) as session:
-            with session.execute(text(sql)) as result:
+            with session.execute(text(sql), {"param": sql_param}) as result:
                 res = result.fetchall()
                 res_list = [TableSchema(*item) for item in res]
                 return res_list
@@ -275,7 +275,7 @@ def get_tables(ds: CoreDatasource):
         if ds.type == 'dm':
             with dmPython.connect(user=conf.username, password=conf.password, server=conf.host,
                                   port=conf.port) as conn, conn.cursor() as cursor:
-                cursor.execute(sql, timeout=conf.timeout)
+                cursor.execute(sql, {"param": sql_param}, timeout=conf.timeout)
                 res = cursor.fetchall()
                 res_list = [TableSchema(*item) for item in res]
                 return res_list
@@ -283,7 +283,7 @@ def get_tables(ds: CoreDatasource):
             with pymysql.connect(user=conf.username, passwd=conf.password, host=conf.host,
                                  port=conf.port, db=conf.database, connect_timeout=conf.timeout,
                                  read_timeout=conf.timeout) as conn, conn.cursor() as cursor:
-                cursor.execute(sql)
+                cursor.execute(sql, (sql_param,))
                 res = cursor.fetchall()
                 res_list = [TableSchema(*item) for item in res]
                 return res_list
@@ -291,7 +291,7 @@ def get_tables(ds: CoreDatasource):
             with redshift_connector.connect(host=conf.host, port=conf.port, database=conf.database, user=conf.username,
                                             password=conf.password,
                                             timeout=conf.timeout) as conn, conn.cursor() as cursor:
-                cursor.execute(sql)
+                cursor.execute(sql, (sql_param,))
                 res = cursor.fetchall()
                 res_list = [TableSchema(*item) for item in res]
                 return res_list
@@ -304,10 +304,10 @@ def get_tables(ds: CoreDatasource):
 def get_fields(ds: CoreDatasource, table_name: str = None):
     conf = DatasourceConf(**json.loads(aes_decrypt(ds.configuration))) if ds.type != "excel" else get_engine_config()
     db = DB.get_db(ds.type)
-    sql = get_field_sql(ds, conf, table_name)
+    sql, p1, p2 = get_field_sql(ds, conf, table_name)
     if db.connect_type == ConnectType.sqlalchemy:
         with get_session(ds) as session:
-            with session.execute(text(sql)) as result:
+            with session.execute(text(sql), {"param1": p1, "param2": p2}) as result:
                 res = result.fetchall()
                 res_list = [ColumnSchema(*item) for item in res]
                 return res_list
@@ -315,7 +315,7 @@ def get_fields(ds: CoreDatasource, table_name: str = None):
         if ds.type == 'dm':
             with dmPython.connect(user=conf.username, password=conf.password, server=conf.host,
                                   port=conf.port) as conn, conn.cursor() as cursor:
-                cursor.execute(sql, timeout=conf.timeout)
+                cursor.execute(sql, {"param1": p1, "param2": p2}, timeout=conf.timeout)
                 res = cursor.fetchall()
                 res_list = [ColumnSchema(*item) for item in res]
                 return res_list
@@ -323,7 +323,7 @@ def get_fields(ds: CoreDatasource, table_name: str = None):
             with pymysql.connect(user=conf.username, passwd=conf.password, host=conf.host,
                                  port=conf.port, db=conf.database, connect_timeout=conf.timeout,
                                  read_timeout=conf.timeout) as conn, conn.cursor() as cursor:
-                cursor.execute(sql)
+                cursor.execute(sql, (p1, p2))
                 res = cursor.fetchall()
                 res_list = [ColumnSchema(*item) for item in res]
                 return res_list
@@ -331,7 +331,7 @@ def get_fields(ds: CoreDatasource, table_name: str = None):
             with redshift_connector.connect(host=conf.host, port=conf.port, database=conf.database, user=conf.username,
                                             password=conf.password,
                                             timeout=conf.timeout) as conn, conn.cursor() as cursor:
-                cursor.execute(sql)
+                cursor.execute(sql, (p1, p2))
                 res = cursor.fetchall()
                 res_list = [ColumnSchema(*item) for item in res]
                 return res_list
@@ -341,7 +341,7 @@ def get_fields(ds: CoreDatasource, table_name: str = None):
             return res_list
 
 
-def exec_sql(ds: CoreDatasource | AssistantOutDsSchema, sql: str, origin_column=False, table_name=None):
+def exec_sql(ds: CoreDatasource | AssistantOutDsSchema, sql: str, origin_column=False):
     while sql.endswith(';'):
         sql = sql[:-1]
 
@@ -420,15 +420,17 @@ def exec_sql(ds: CoreDatasource | AssistantOutDsSchema, sql: str, origin_column=
                 except Exception as ex:
                     raise ParseSQLResultError(str(ex))
         elif ds.type == 'es':
-            if table_name and table_name[0]:
-                res, columns = get_es_data(conf, sql, table_name[0])
-                columns = [field[0] for field in columns] if origin_column else [field[0].lower() for
-                                                                                 field in
-                                                                                 columns]
+            try:
+                res, columns = get_es_data_by_http(conf, sql)
+                columns = [field.get('name') for field in columns] if origin_column else [field.get('name').lower() for
+                                                                                          field in
+                                                                                          columns]
                 result_list = [
                     {str(columns[i]): float(value) if isinstance(value, Decimal) else value for i, value in
-                     enumerate(tuple_item)}
+                     enumerate(tuple(tuple_item))}
                     for tuple_item in res
                 ]
                 return {"fields": columns, "data": result_list,
                         "sql": bytes.decode(base64.b64encode(bytes(sql, 'utf-8')))}
+            except Exception as ex:
+                raise Exception(str(ex))

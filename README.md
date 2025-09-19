@@ -32,7 +32,7 @@ docker run -d \
   -p 8001:8001 \
   -v ./data/sqlbot/excel:/opt/sqlbot/data/excel \
   -v ./data/sqlbot/images:/opt/sqlbot/images \
-  -v ./data/sqlbot/logs:/opt/sqlbot/logs \
+  -v ./data/sqlbot/logs:/opt/sqlbot/app/logs \
   -v ./data/postgresql:/var/lib/postgresql/data \
   --privileged=true \
   dataease/sqlbot

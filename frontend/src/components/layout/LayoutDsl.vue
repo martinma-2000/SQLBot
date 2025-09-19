@@ -61,37 +61,37 @@ const showSysmenu = computed(() => {
           width="30"
           height="30"
           :src="logo_fold_blue"
-          @click="toChatIndex"
           style="margin: 0 0 6px 5px; cursor: pointer"
+          @click="toChatIndex"
         />
         <img
           v-else
-          @click="toChatIndex"
           width="130"
           height="31"
           :src="logo_blue"
           style="margin-bottom: 6px; cursor: pointer"
+          @click="toChatIndex"
         />
       </template>
       <template v-else-if="appearanceStore.themeColor === 'custom'">
         <custom_small
-          @click="toChatIndex"
           v-if="collapse"
           style="margin: 0 0 6px 5px; cursor: pointer"
+          @click="toChatIndex"
         ></custom_small>
         <LOGOCustom
-          @click="toChatIndex"
           v-else
           style="margin-bottom: 6px; cursor: pointer"
+          @click="toChatIndex"
         ></LOGOCustom>
       </template>
       <template v-else>
         <LOGO_fold
-          @click="toChatIndex"
           v-if="collapse"
           style="margin: 0 0 6px 5px; cursor: pointer"
+          @click="toChatIndex"
         ></LOGO_fold>
-        <LOGO @click="toChatIndex" v-else style="margin-bottom: 6px; cursor: pointer"></LOGO>
+        <LOGO v-else style="margin-bottom: 6px; cursor: pointer" @click="toChatIndex"></LOGO>
       </template>
       <Workspace v-if="!showSysmenu" :collapse="collapse"></Workspace>
       <Menu :collapse="collapseCopy"></Menu>

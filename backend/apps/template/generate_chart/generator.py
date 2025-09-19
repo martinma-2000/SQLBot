@@ -8,3 +8,7 @@ def get_chart_template():
 def get_base_terminology_template():
     template = get_base_template()
     return template['template']['terminology']
+
+def get_base_data_training_template():
+    template = get_base_template()
+    return template['template']['data_training']

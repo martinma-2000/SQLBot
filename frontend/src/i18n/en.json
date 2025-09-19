@@ -6,6 +6,18 @@
     "Dashboard": "Dashboard",
     "AI Model Configuration": "AI Model Configuration"
   },
+  "training": {
+    "data_training": "SQL Sample Lib",
+    "problem_description": "Problem Description",
+    "sample_sql": "Sample SQL",
+    "search_problem": "Search Problem",
+    "add_training_data": "Add SQL Sample",
+    "training_data_details": "SQL Sample Details",
+    "training_data_items": "Do you want to delete the {msg} selected SQL Sample items?",
+    "sql_statement": "SQL Statement",
+    "edit_training_data": "Edit SQL Sample",
+    "sales_this_year": "Do you want to delete the SQL Sample: {msg}?"
+  },
   "professional": {
     "cannot_be_repeated": "Term name, synonyms cannot be repeated",
     "code_for_debugging": "Copy the following code for debugging",

@@ -16,7 +16,7 @@ import sqlparse
 from langchain.chat_models.base import BaseChatModel
 from langchain_community.utilities import SQLDatabase
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage, BaseMessageChunk
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import sessionmaker
 from sqlmodel import Session
 
@@ -29,6 +29,7 @@ from apps.chat.curd.chat import save_question, save_sql_answer, save_sql, \
     get_chat_chart_data, list_generate_sql_logs, list_generate_chart_logs, start_log, end_log, \
     get_last_execute_sql_error
 from apps.chat.models.chat_model import ChatQuestion, ChatRecord, Chat, RenameChat, ChatLog, OperationEnum
+from apps.data_training.curd.data_training import get_training_template
 from apps.datasource.crud.datasource import get_table_schema
 from apps.datasource.crud.permission import get_row_permission_filters, is_normal_user
 from apps.datasource.models.datasource import CoreDatasource
@@ -145,8 +146,6 @@ class LLMService:
 </error-msg>'''
         else:
             self.chat_question.error_msg = ''
-
-        self.init_messages()
 
     @classmethod
     async def create(cls, *args, **kwargs):
@@ -405,9 +404,8 @@ class LLMService:
         if self.current_assistant and self.current_assistant.type != 4:
             _ds_list = get_assistant_ds(session=self.session, llm_service=self)
         else:
-            oid: str = self.current_user.oid
             stmt = select(CoreDatasource.id, CoreDatasource.name, CoreDatasource.description).where(
-                CoreDatasource.oid == oid)
+                and_(CoreDatasource.oid == self.current_user.oid))
             _ds_list = [
                 {
                     "id": ds.id,
@@ -425,7 +423,7 @@ class LLMService:
 
         full_thinking_text = ''
         full_text = ''
-
+        json_str: Optional[str] = None
         if not ignore_auto_select:
             _ds_list_dict = []
             for _ds in _ds_list:
@@ -439,7 +437,8 @@ class LLMService:
                                                                            operate=OperationEnum.CHOOSE_DATASOURCE,
                                                                            record_id=self.record.id,
                                                                            full_message=[{'type': msg.type,
-                                                                                          'content': msg.content} for
+                                                                                          'content': msg.content}
+                                                                                         for
                                                                                          msg in datasource_msg])
 
             token_usage = {}
@@ -464,12 +463,15 @@ class LLMService:
                                                                          log=self.current_logs[
                                                                              OperationEnum.CHOOSE_DATASOURCE],
                                                                          full_message=[
-                                                                             {'type': msg.type, 'content': msg.content}
+                                                                             {'type': msg.type,
+                                                                              'content': msg.content}
                                                                              for msg in datasource_msg],
                                                                          reasoning_content=full_thinking_text,
                                                                          token_usage=token_usage)
 
             json_str = extract_nested_json(full_text)
+            if json_str is None:
+                raise SingleMessageError(f'Cannot parse datasource from answer: {full_text}')
 
         _error: Exception | None = None
         _datasource: int | None = None
@@ -519,11 +521,15 @@ class LLMService:
                                                         answer=orjson.dumps({'content': full_text}).decode(),
                                                         datasource=_datasource,
                                                         engine_type=_engine_type)
+        if self.ds:
+            oid = self.ds.oid if isinstance(self.ds, CoreDatasource) else 1
+            ds_id = self.ds.id if isinstance(self.ds, CoreDatasource) else None
 
-        self.chat_question.terminologies = get_terminology_template(self.session, self.chat_question.question,
-                                                                    self.ds.oid if isinstance(self.ds,
-                                                                                              CoreDatasource) else 1)
-        self.init_messages()
+            self.chat_question.terminologies = get_terminology_template(self.session, self.chat_question.question, oid)
+            self.chat_question.data_training = get_training_template(self.session, self.chat_question.question, ds_id,
+                                                                     oid)
+
+            self.init_messages()
 
         if _error:
             raise _error
@@ -881,7 +887,7 @@ class LLMService:
     def finish(self):
         return finish_record(session=self.session, record_id=self.record.id)
 
-    def execute_sql(self, sql: str, tables):
+    def execute_sql(self, sql: str):
         """Execute SQL query
 
         Args:
@@ -893,7 +899,7 @@ class LLMService:
         """
         SQLBotLogUtil.info(f"Executing SQL on ds_id {self.ds.id}: {sql}")
         try:
-            return exec_sql(ds=self.ds, sql=sql, origin_column=False, table_name=tables)
+            return exec_sql(ds=self.ds, sql=sql, origin_column=False)
         except Exception as e:
             if isinstance(e, ParseSQLResultError):
                 raise e
@@ -932,9 +938,13 @@ class LLMService:
     def run_task(self, in_chat: bool = True):
         try:
             if self.ds:
+                oid = self.ds.oid if isinstance(self.ds, CoreDatasource) else 1
+                ds_id = self.ds.id if isinstance(self.ds, CoreDatasource) else None
                 self.chat_question.terminologies = get_terminology_template(self.session, self.chat_question.question,
-                                                                            self.ds.oid if isinstance(self.ds,
-                                                                                                      CoreDatasource) else 1)
+                                                                            oid)
+                self.chat_question.data_training = get_training_template(self.session, self.chat_question.question,
+                                                                         ds_id, oid)
+
             self.init_messages()
 
             # return id
@@ -1022,7 +1032,6 @@ class LLMService:
                     sql = self.check_save_sql(res=full_sql_text)
             else:
                 sql = self.check_save_sql(res=full_sql_text)
-                tables = []
 
             SQLBotLogUtil.info(sql)
             format_sql = sqlparse.format(sql, reindent=True)
@@ -1040,7 +1049,7 @@ class LLMService:
                                                                           subsql)
                 real_execute_sql = assistant_dynamic_sql
 
-            result = self.execute_sql(sql=real_execute_sql, tables=tables)
+            result = self.execute_sql(sql=real_execute_sql)
             self.save_sql_data(data_obj=result)
             if in_chat:
                 yield 'data:' + orjson.dumps({'content': 'execute-success', 'type': 'sql-data'}).decode() + '\n\n'
@@ -1104,6 +1113,7 @@ class LLMService:
                     SQLBotLogUtil.info(image_url)
                     yield f'![{chart["type"]}]({image_url})'
         except Exception as e:
+            traceback.print_exc()
             error_msg: str
             if isinstance(e, SingleMessageError):
                 error_msg = str(e)
