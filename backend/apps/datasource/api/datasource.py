@@ -8,12 +8,7 @@ from typing import List
 
 import orjson
 import pandas as pd
-from fastapi import APIRouter, File, UploadFile, HTTPException, Form
-from pydantic import BaseModel
-
-from test.excel_extract import ExcelHeaderProcessor
-from test.merge_diff_time import concatenate_dataframes
-
+from fastapi import APIRouter, File, UploadFile, HTTPException
 
 from apps.db.db import get_schema
 from apps.db.engine import get_engine_conn
@@ -29,18 +24,6 @@ from ..models.datasource import CoreDatasource, CreateDatasource, TableObj, Core
 
 router = APIRouter(tags=["datasource"], prefix="/datasource")
 path = settings.EXCEL_PATH
-
-
-class PreprocessResponse(BaseModel):
-    """预处理响应模型"""
-    filename: str
-    sheets: List[dict]
-
-
-class ConcatenateRequest(BaseModel):
-    """拼接请求模型"""
-    file_paths: List[str]
-    sheet_names: List[str] = None
 
 
 @router.get("/ws/{oid}", include_in_schema=False)
@@ -240,7 +223,7 @@ async def field_enum(session: SessionDep, id: int):
 #                 column_len = len(df.dtypes)
 #                 fields = []
 #                 for i in range(column_len):
-#                 # build fields
+#                     # build fields
 #                     fields.append({"name": df.columns[i], "type": str(df.dtypes[i]), "relType": ""})
 #                 # create table
 #                 create_table(conn, tableName, fields)
