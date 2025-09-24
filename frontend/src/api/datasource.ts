@@ -23,4 +23,9 @@ export const datasourceApi = {
   getDs: (id: number) => request.post(`/datasource/get/${id}`),
   cancelRequests: () => request.cancelRequests(),
   getSchema: (data: any) => request.post('/datasource/getSchemaByConf', data),
+  concatenateExcels: (formData: FormData) => request.post('/datasource/concatenateExcels', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    }
+  }),
 }

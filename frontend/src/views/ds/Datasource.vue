@@ -117,6 +117,10 @@ const handleAddDatasource = () => {
   addDrawerRef.value.handleAddDatasource()
 }
 
+const handleConcatenateDatasource = () => {
+  addDrawerRef.value.handleConcatenateDatasource()
+}
+
 const refreshData = () => {
   search()
 }
@@ -263,6 +267,13 @@ useEmitt({
             <icon_add_outlined></icon_add_outlined>
           </template>
           {{ $t('datasource.new_data_source') }}
+        </el-button>
+        
+        <el-button type="primary" style="margin-left: 12px" @click="handleConcatenateDatasource">
+          <template #icon>
+            <icon_add_outlined></icon_add_outlined>
+          </template>
+          纵向合并
         </el-button>
       </div>
     </div>
