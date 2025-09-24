@@ -366,30 +366,33 @@ async def preprocess_excel(
         raise HTTPException(500, f"预处理文件时出错: {str(e)}")
 
 from fastapi.responses import FileResponse
+
+
 @router.post("/concatenateExcels")
 async def concatenate_excels(
-    files: List[UploadFile] = File(...),
-    separator: str = Form("_"),
-    primary_key_col: int = Form(0)
+        session: SessionDep,
+        files: List[UploadFile] = File(...),
+        separator: str = Form("_"),
+        primary_key_col: int = Form(0)
 ):
     """
-    拼接多个Excel文件
-    
+    拼接多个Excel文件并创建数据源
+
     参数:
     - files: 上传的多个Excel文件
     - separator: 连接符，默认为下划线
     - primary_key_col: 主键列索引，默认为0
-    
+
     返回:
-    - PreprocessResponse: 拼接后的文件信息
+    - dict: 拼接后的文件信息和数据表信息
     """
     ALLOWED_EXTENSIONS = {"xlsx", "xls"}
-    
+
     # 检查文件类型
     for file in files:
         if not file.filename.lower().endswith(tuple(ALLOWED_EXTENSIONS)):
             raise HTTPException(400, "Only support .xlsx/.xls")
-    
+
     # 保存上传的文件
     file_paths = []
     for file in files:
@@ -398,39 +401,55 @@ async def concatenate_excels(
         with open(save_path, "wb") as f:
             f.write(await file.read())
         file_paths.append(save_path)
-    
+
     try:
         # 创建处理器实例
         processor = ExcelHeaderProcessor(separator=separator)
-        
+
         # 预处理所有文件
         dataframes = []
         for file_path in file_paths:
             df = processor.convert_multi_to_single_header(file_path)
             dataframes.append(df)
-        
+
         # 拼接所有DataFrame
         result_df = concatenate_dataframes(dataframes, primary_key_col)
-        
+
         # 保存拼接后的文件
         concatenated_filename = f"concatenated_{hashlib.sha256(uuid.uuid4().bytes).hexdigest()[:10]}.xlsx"
         concatenated_path = os.path.join(path, concatenated_filename)
         result_df.to_excel(concatenated_path, index=False)
-        
-        # 返回拼接后的文件信息
-        # sheets = [{"tableName": "Sheet1", "tableComment": "Concatenated Sheet"}]
-        # return PreprocessResponse(filename=concatenated_filename, sheets=sheets)
-        # 返回文件供下载
-        return FileResponse(
-            path=concatenated_path,
-            filename=concatenated_filename,
-            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
+
+        # 直接处理合并后的文件，类似uploadExcel的逻辑
+        def inner():
+            sheets = []
+            engine = get_engine_conn()
+
+            # 读取合并后的Excel文件
+            sheet_names = pd.ExcelFile(concatenated_path).sheet_names
+            for sheet_name in sheet_names:
+                tableName = f"{sheet_name}_{hashlib.sha256(uuid.uuid4().bytes).hexdigest()[:10]}"
+                sheets.append({"tableName": tableName, "tableComment": "Concatenated data"})
+                df = pd.read_excel(concatenated_path, sheet_name=sheet_name, engine='calamine')
+                insert_pg(df, tableName, engine)
+
+            return {"filename": concatenated_filename, "sheets": sheets}
+
+        result = await asyncio.to_thread(inner)
+
+        # 清理临时文件
+        for file_path in file_paths:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+
+        return result
     except Exception as e:
         # 删除临时文件
         for file_path in file_paths:
             if os.path.exists(file_path):
                 os.remove(file_path)
+        if 'concatenated_path' in locals() and os.path.exists(concatenated_path):
+            os.remove(concatenated_path)
         raise HTTPException(500, f"拼接文件时出错: {str(e)}")
 
 
