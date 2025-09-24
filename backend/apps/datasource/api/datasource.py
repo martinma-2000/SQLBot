@@ -241,7 +241,7 @@ async def field_enum(session: SessionDep, id: int):
 #                 column_len = len(df.dtypes)
 #                 fields = []
 #                 for i in range(column_len):
-#                 # build fields
+#                     # build fields
 #                     fields.append({"name": df.columns[i], "type": str(df.dtypes[i]), "relType": ""})
 #                 # create table
 #                 create_table(conn, tableName, fields)
@@ -442,22 +442,22 @@ async def merge_excels_horizontally(
 ):
     """
     横向合并多个Excel文件，基于相同的时间列
-    
+
     参数:
     - files: 上传的多个Excel文件
     - separator: 连接符，默认为下划线
     - time_col: 时间列索引，默认为0（第一列）
-    
+
     返回:
     - 合并后的Excel文件
     """
     ALLOWED_EXTENSIONS = {"xlsx", "xls"}
-    
+
     # 检查文件类型
     for file in files:
         if not file.filename.lower().endswith(tuple(ALLOWED_EXTENSIONS)):
             raise HTTPException(400, "Only support .xlsx/.xls")
-    
+
     # 保存上传的文件
     file_paths = []
     for file in files:
@@ -466,25 +466,25 @@ async def merge_excels_horizontally(
         with open(save_path, "wb") as f:
             f.write(await file.read())
         file_paths.append(save_path)
-    
+
     try:
         # 创建处理器实例
         processor = ExcelHeaderProcessor(separator=separator)
-        
+
         # 预处理所有文件
         dataframes = []
         for file_path in file_paths:
             df = processor.convert_multi_to_single_header(file_path)
             dataframes.append(df)
-        
+
         # 横向合并所有DataFrame
         result_df = merge_dataframes_horizontally(dataframes, time_col)
-        
+
         # 保存合并后的文件
         merged_filename = f"merged_horizontally_{hashlib.sha256(uuid.uuid4().bytes).hexdigest()[:10]}.xlsx"
         merged_path = os.path.join(path, merged_filename)
         result_df.to_excel(merged_path, index=False)
-        
+
         # 返回文件供下载
         return FileResponse(
             path=merged_path,
