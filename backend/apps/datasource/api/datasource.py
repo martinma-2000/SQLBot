@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from test.excel_extract import ExcelHeaderProcessor
 from test.merge_diff_time import concatenate_dataframes
+from test.merge_diff_column import merge_dataframes_horizontally
 
 
 from apps.db.db import get_schema
@@ -431,6 +432,71 @@ async def concatenate_excels(
             if os.path.exists(file_path):
                 os.remove(file_path)
         raise HTTPException(500, f"拼接文件时出错: {str(e)}")
+
+
+@router.post("/mergeExcelsHorizontally")
+async def merge_excels_horizontally(
+    files: List[UploadFile] = File(...),
+    separator: str = Form("_"),
+    time_col: int = Form(0)
+):
+    """
+    横向合并多个Excel文件，基于相同的时间列
+    
+    参数:
+    - files: 上传的多个Excel文件
+    - separator: 连接符，默认为下划线
+    - time_col: 时间列索引，默认为0（第一列）
+    
+    返回:
+    - 合并后的Excel文件
+    """
+    ALLOWED_EXTENSIONS = {"xlsx", "xls"}
+    
+    # 检查文件类型
+    for file in files:
+        if not file.filename.lower().endswith(tuple(ALLOWED_EXTENSIONS)):
+            raise HTTPException(400, "Only support .xlsx/.xls")
+    
+    # 保存上传的文件
+    file_paths = []
+    for file in files:
+        filename = f"{file.filename.split('.')[0]}_{hashlib.sha256(uuid.uuid4().bytes).hexdigest()[:10]}.{file.filename.split('.')[1]}"
+        save_path = os.path.join(path, filename)
+        with open(save_path, "wb") as f:
+            f.write(await file.read())
+        file_paths.append(save_path)
+    
+    try:
+        # 创建处理器实例
+        processor = ExcelHeaderProcessor(separator=separator)
+        
+        # 预处理所有文件
+        dataframes = []
+        for file_path in file_paths:
+            df = processor.convert_multi_to_single_header(file_path)
+            dataframes.append(df)
+        
+        # 横向合并所有DataFrame
+        result_df = merge_dataframes_horizontally(dataframes, time_col)
+        
+        # 保存合并后的文件
+        merged_filename = f"merged_horizontally_{hashlib.sha256(uuid.uuid4().bytes).hexdigest()[:10]}.xlsx"
+        merged_path = os.path.join(path, merged_filename)
+        result_df.to_excel(merged_path, index=False)
+        
+        # 返回文件供下载
+        return FileResponse(
+            path=merged_path,
+            filename=merged_filename,
+            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as e:
+        # 删除临时文件
+        for file_path in file_paths:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        raise HTTPException(500, f"横向合并文件时出错: {str(e)}")
 
 
 def insert_pg(df, tableName, engine):
