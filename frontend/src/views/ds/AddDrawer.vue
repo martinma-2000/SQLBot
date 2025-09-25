@@ -4,6 +4,7 @@ import { datasourceApi } from '@/api/datasource'
 import { useI18n } from 'vue-i18n'
 import icon_close_outlined from '@/assets/svg/operate/ope-close.svg'
 import DatasourceList from './DatasourceList.vue'
+import DatasourceListSide from './DatasourceListSide.vue'
 import DatasourceForm from './DatasourceForm.vue'
 
 const { t } = useI18n()
@@ -11,7 +12,6 @@ const datasourceConfigVisible = ref(false)
 const activeStep = ref(0)
 const currentType = ref('')
 const editDatasource = ref(false)
-const concatenateMode = ref(false)  // 新增：标识是否为纵向合并模式
 const activeName = ref('')
 const activeType = ref('')
 const datasourceFormRef = ref()
@@ -19,11 +19,15 @@ const datasourceFormRef = ref()
 const beforeClose = () => {
   datasourceConfigVisible.value = false
   activeStep.value = 0
-  concatenateMode.value = false  // 重置纵向合并模式
   datasourceApi.cancelRequests()
 }
 const clickDatasource = (ele: any) => {
   activeStep.value = 1
+  activeName.value = ele.name
+  activeType.value = ele.type
+}
+
+const clickDatasourceSide = (ele: any) => {
   activeName.value = ele.name
   activeType.value = ele.type
 }
@@ -50,16 +54,6 @@ const handleEditDatasource = (res: any) => {
 
 const handleAddDatasource = () => {
   editDatasource.value = false
-  concatenateMode.value = false
-  datasourceConfigVisible.value = true
-}
-
-const handleConcatenateDatasource = () => {
-  editDatasource.value = false
-  concatenateMode.value = true
-  activeStep.value = 1  // 设置为步骤1，显示表单
-  activeName.value = '纵向合并 Excel/CSV'  // 设置名称
-  activeType.value = 'excel'  // 设置类型为excel
   datasourceConfigVisible.value = true
 }
 
@@ -70,7 +64,6 @@ const changeActiveStep = (val: number) => {
 defineExpose({
   handleEditDatasource,
   handleAddDatasource,
-  handleConcatenateDatasource,
 })
 </script>
 
@@ -89,8 +82,6 @@ defineExpose({
       <span style="white-space: nowrap">{{
         editDatasource
           ? t('datasource.mysql_data_source', { msg: currentType })
-          : concatenateMode
-          ? '纵向合并数据源'
           : $t('datasource.new_data_source')
       }}</span>
       <div v-if="!editDatasource" class="flex-center" style="width: 100%">
@@ -110,15 +101,19 @@ defineExpose({
         <icon_close_outlined></icon_close_outlined>
       </el-icon>
     </template>
-    <DatasourceList v-if="activeStep === 0 && !concatenateMode" @click-datasource="clickDatasource"></DatasourceList>
+    <DatasourceList v-if="activeStep === 0" @click-datasource="clickDatasource"></DatasourceList>
+    <DatasourceListSide
+      v-if="activeStep === 1 && !editDatasource"
+      :active-name="activeName"
+      @click-datasource="clickDatasourceSide"
+    ></DatasourceListSide>
     <DatasourceForm
-      v-if="concatenateMode || [1, 2].includes(activeStep)"
+      v-if="[1, 2].includes(activeStep)"
       ref="datasourceFormRef"
       :is-data-table="false"
       :active-step="activeStep"
       :active-name="activeName"
       :active-type="activeType"
-      :concatenate-mode="concatenateMode"
       @refresh="refresh"
       @close="beforeClose"
       @change-active-step="changeActiveStep"

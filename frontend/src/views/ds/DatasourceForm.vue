@@ -23,14 +23,12 @@ const props = withDefaults(
     activeType: string
     activeStep: number
     isDataTable: boolean
-    concatenateMode?: boolean
   }>(),
   {
     activeName: '',
     activeType: '',
     activeStep: 0,
     isDataTable: false,
-    concatenateMode: false,
   }
 )
 
@@ -49,25 +47,6 @@ const saveLoading = ref<boolean>(false)
 const uploadLoading = ref(false)
 const { t } = useI18n()
 const schemaList = ref<any>([])
-
-// 纵向合并模式相关变量
-const multipleFiles = ref<File[]>([])
-
-// 格式化文件大小
-const formatFileSize = (size: number) => {
-  return setSize(size)
-}
-
-// 处理多文件选择
-const handleMultipleFileChange = (_file: any, fileList: any[]) => {
-  const newFiles = fileList.map(item => item.raw).filter(Boolean)
-  multipleFiles.value = newFiles
-}
-
-// 移除文件
-const removeFile = (index: number) => {
-  multipleFiles.value.splice(index, 1)
-}
 
 const rules = reactive<FormRules>({
   name: [
@@ -107,26 +86,7 @@ const rules = reactive<FormRules>({
     },
   ],
   mode: [{ required: true, message: 'Please choose mode', trigger: 'change' }],
-  sheets: [
-    { 
-      required: true, 
-      message: t('user.upload_file'), 
-      trigger: 'change',
-      validator: (_rule: any, value: any, callback: any) => {
-        // 纵向合并模式下跳过sheets验证
-        if (props.concatenateMode) {
-          callback()
-          return
-        }
-        // 普通模式下进行正常验证
-        if (!value || value.length === 0) {
-          callback(new Error(t('user.upload_file')))
-        } else {
-          callback()
-        }
-      }
-    }
-  ],
+  sheets: [{ required: true, message: t('user.upload_file'), trigger: 'change' }],
   dbSchema: [
     {
       required: true,
@@ -197,11 +157,7 @@ const initForm = (item: any, editTable: boolean = false) => {
 
     if (editTable) {
       dialogTitle.value = t('ds.form.choose_tables')
-      emit('changeActiveStep', 2)
-      isEditTable.value = true
-      isCreate.value = false
       // request tables and check tables
-
       datasourceApi.tableList(item.id).then((res: any) => {
         checkList.value = res.map((ele: any) => {
           return ele.table_name
@@ -265,74 +221,6 @@ const initForm = (item: any, editTable: boolean = false) => {
 
 const save = async (formEl: FormInstance | undefined) => {
   if (!formEl) return
-  
-  // 纵向合并模式的处理逻辑
-  if (props.concatenateMode) {
-    if (multipleFiles.value.length < 2) {
-      ElMessage({
-        message: '请至少选择两个文件进行合并',
-        type: 'warning',
-        showClose: true,
-      })
-      return
-    }
-    
-    // 验证表单基本信息
-    await formEl.validate(async (valid) => {
-      if (valid) {
-        saveLoading.value = true
-        
-        try {
-          // 创建FormData
-          const formData = new FormData()
-          multipleFiles.value.forEach((file) => {
-            formData.append('files', file)
-          })
-          formData.append('separator', '_')
-          formData.append('primary_key_col', '0')
-          
-          // 调用纵向合并接口
-          const response = await datasourceApi.concatenateExcels(formData)
-          
-          // 设置合并后的文件信息
-          form.value.filename = response.filename
-          form.value.sheets = response.sheets
-          
-          // 创建数据源
-          const list = response.sheets.map((sheet: any) => ({
-            table_name: sheet.tableName,
-            table_comment: sheet.tableComment
-          }))
-          
-          const requestObj = buildConf()
-          requestObj.tables = list
-          
-          await datasourceApi.add(requestObj)
-          
-          ElMessage({
-            message: '纵向合并数据源创建成功！',
-            type: 'success',
-            showClose: true,
-          })
-          
-          // 触发刷新事件，这会关闭弹出页面并刷新数据源列表
-          emit('refresh')
-        } catch (error) {
-          console.error('创建纵向合并数据源失败:', error)
-          ElMessage({
-            message: '创建纵向合并数据源失败，请检查文件格式',
-            type: 'error',
-            showClose: true,
-          })
-        } finally {
-          saveLoading.value = false
-        }
-      }
-    })
-    return
-  }
-  
-  // 原有的保存逻辑
   await formEl.validate(async (valid) => {
     if (valid) {
       const list = tableList.value
@@ -464,63 +352,10 @@ onBeforeUnmount(() => (saveLoading.value = false))
 
 const next = debounce(async (formEl: FormInstance | undefined) => {
   if (!formEl) return
-  
-  // 纵向合并模式：跳过表单验证，直接检查文件
-  if (props.concatenateMode) {
-    if (multipleFiles.value.length >= 2) {
-      // 检查数据源名称是否填写
-      if (!form.value.name || form.value.name.trim() === '') {
-        ElMessage({
-          message: '请输入数据源名称',
-          type: 'warning',
-          showClose: true,
-        })
-        return
-      }
-      
-      // 调用后端API进行文件合并和数据表创建
-      const formData = new FormData()
-      multipleFiles.value.forEach(file => {
-        formData.append('files', file)
-      })
-      formData.append('separator', '_')
-      formData.append('primary_key_col', '0')
-      
-      try {
-        const response = await datasourceApi.concatenateExcels(formData)
-        // 设置合并后的文件信息
-        form.value.filename = response.filename
-        form.value.sheets = response.sheets
-        tableList.value = response.sheets
-        excelUploadSuccess.value = true
-        
-        // 纵向合并模式：由于合并后只有一个sheet，直接保存数据源，跳过数据表选择步骤
-        checkList.value = response.sheets.map((sheet: any) => sheet.tableName)
-        await save(dsFormRef.value)
-        return
-      } catch (error) {
-        ElMessage({
-          message: '文件合并失败，请检查文件格式和内容',
-          type: 'error',
-          showClose: true,
-        })
-        console.error('文件合并错误:', error)
-      }
-    } else {
-      ElMessage({
-        message: '请至少选择两个文件进行合并',
-        type: 'warning',
-        showClose: true,
-      })
-    }
-    return
-  }
-  
-  // 普通模式：进行表单验证
   await formEl.validate((valid) => {
     if (valid) {
       if (form.value.type === 'excel') {
-        // 普通Excel模式：检查上传成功状态
+        // next, show tables
         if (excelUploadSuccess.value) {
           emit('changeActiveStep', props.activeStep + 1)
         }
@@ -606,36 +441,13 @@ watch(
   () => props.activeType,
   (val) => {
     form.value.type = val
-    // 纵向合并模式下，设置sheets为非空数组以通过验证
-    if (props.concatenateMode && val === 'excel') {
-      form.value.sheets = ['placeholder'] // 设置占位符以通过验证
-    }
-  },
-  { immediate: true }  // 立即执行一次
-)
-
-// 监听concatenateMode变化
-watch(
-  () => props.concatenateMode,
-  (isConcatenate) => {
-    if (isConcatenate && form.value.type === 'excel') {
-      form.value.sheets = ['placeholder'] // 设置占位符以通过验证
-    } else if (!isConcatenate) {
-      form.value.sheets = []
-    }
-  },
-  { immediate: true }
+  }
 )
 const fileSize = ref('-')
 const clearFile = () => {
   fileSize.value = ''
   form.value.filename = ''
-  // 纵向合并模式下保持占位符，避免验证失败
-  if (props.concatenateMode && form.value.type === 'excel') {
-    form.value.sheets = ['placeholder']
-  } else {
-    form.value.sheets = []
-  }
+  form.value.sheets = []
   tableList.value = []
 }
 
@@ -710,23 +522,9 @@ defineExpose({
         :rules="rules"
         @submit.prevent
       >
-        <div v-if="form.type === 'excel' || props.concatenateMode">
+        <div v-if="form.type === 'excel'">
           <el-form-item prop="sheets" :label="t('ds.form.file')">
-            <!-- 纵向合并模式：显示多个文件 -->
-            <div v-if="props.concatenateMode && multipleFiles.length > 0">
-              <div v-for="(file, index) in multipleFiles" :key="index" class="pdf-card" style="margin-bottom: 8px;">
-                <img :src="icon_fileExcel_colorful" width="40px" height="40px" />
-                <div class="file-name">
-                  <div class="name">{{ file.name }}</div>
-                  <div class="size">{{ file.name.split('.')[1] }} - {{ formatFileSize(file.size) }}</div>
-                </div>
-                <el-icon class="action-btn" size="16" @click="removeFile(index)">
-                  <IconOpeDelete></IconOpeDelete>
-                </el-icon>
-              </div>
-            </div>
-            <!-- 普通模式：显示单个文件 -->
-            <div v-else-if="form.filename && !props.concatenateMode" class="pdf-card">
+            <div v-if="form.filename" class="pdf-card">
               <img :src="icon_fileExcel_colorful" width="40px" height="40px" />
               <div class="file-name">
                 <div class="name">{{ form.filename }}</div>
@@ -736,26 +534,8 @@ defineExpose({
                 <IconOpeDelete></IconOpeDelete>
               </el-icon>
             </div>
-            <!-- 纵向合并模式的上传按钮 -->
             <el-upload
-              v-if="props.concatenateMode"
-              class="upload-user"
-              accept=".xlsx,.xls,.csv"
-              :auto-upload="false"
-              :multiple="true"
-              :on-change="handleMultipleFileChange"
-              :show-file-list="false"
-            >
-              <el-button secondary>
-                <el-icon size="16" style="margin-right: 4px">
-                  <icon_upload_outlined></icon_upload_outlined>
-                </el-icon>
-                {{ multipleFiles.length > 0 ? '添加更多文件' : '选择多个文件' }}
-              </el-button>
-            </el-upload>
-            <!-- 普通模式的上传按钮 -->
-            <el-upload
-              v-else-if="form.filename && !form.id"
+              v-if="form.filename && !form.id"
               class="upload-user"
               accept=".xlsx,.xls,.csv"
               :action="getUploadURL"
@@ -770,7 +550,7 @@ defineExpose({
               </el-button>
             </el-upload>
             <el-upload
-              v-else-if="!form.id && !props.concatenateMode"
+              v-else-if="!form.id"
               class="upload-user"
               accept=".xlsx,.xls,.csv"
               :action="getUploadURL"
@@ -787,7 +567,7 @@ defineExpose({
                 {{ t('user.upload_file') }}</el-button
               >
             </el-upload>
-            <span v-if="(!form.filename && !props.concatenateMode) || (props.concatenateMode && multipleFiles.length === 0)" class="not_exceed">{{ $t('common.not_exceed_50mb') }}</span>
+            <span v-if="!form.filename" class="not_exceed">{{ $t('common.not_exceed_50mb') }}</span>
           </el-form-item>
         </div>
         <el-form-item :label="t('ds.form.name')" prop="name">
@@ -946,70 +726,40 @@ defineExpose({
               {{ t('datasource.select_all') }}
             </el-checkbox>
           </div>
-          <!-- 纵向合并模式：显示合并确认信息 -->
-          <div v-if="props.concatenateMode" class="concatenate-confirm">
-            <div class="title">确认合并信息</div>
-            <div class="file-list">
-              <div class="subtitle">待合并文件 ({{ multipleFiles.length }} 个):</div>
-              <div v-for="(file, index) in multipleFiles" :key="index" class="file-item">
-                <el-icon><icon_fileExcel_colorful /></el-icon>
-                <span>{{ file.name }}</span>
-                <span class="file-size">({{ formatFileSize(file.size) }})</span>
-              </div>
-            </div>
-            <el-form ref="dsFormRef" :model="form" label-position="top">
-              <el-form-item label="数据源名称" prop="name">
-                <el-input v-model="form.name" placeholder="请输入合并后的数据源名称" />
-              </el-form-item>
-              <el-form-item label="描述">
-                <el-input
-                  v-model="form.description"
-                  type="textarea"
-                  :rows="3"
-                  placeholder="请输入描述信息"
-                  maxlength="200"
-                  show-word-limit
-                />
-              </el-form-item>
-            </el-form>
-          </div>
-          <!-- 普通模式：显示表选择 -->
-          <div v-else>
-            <EmptyBackground
-              v-if="!!keywords && !tableListWithSearch.length"
-              :description="$t('datasource.relevant_content_found')"
-              img-type="tree"
-              style="width: 100%"
-            />
-            <el-checkbox-group
-              v-else
-              v-model="checkList"
-              style="position: relative"
-              @change="handleCheckedTablesChange"
+          <EmptyBackground
+            v-if="!!keywords && !tableListWithSearch.length"
+            :description="$t('datasource.relevant_content_found')"
+            img-type="tree"
+            style="width: 100%"
+          />
+          <el-checkbox-group
+            v-else
+            v-model="checkList"
+            style="position: relative"
+            @change="handleCheckedTablesChange"
+          >
+            <FixedSizeList
+              :item-size="32"
+              :data="tableListWithSearch"
+              :total="tableListWithSearch.length"
+              :width="800"
+              :height="460"
+              :scrollbar-always-on="true"
+              class-name="ed-select-dropdown__list"
+              layout="vertical"
             >
-              <FixedSizeList
-                :item-size="32"
-                :data="tableListWithSearch"
-                :total="tableListWithSearch.length"
-                :width="800"
-                :height="460"
-                :scrollbar-always-on="true"
-                class-name="ed-select-dropdown__list"
-                layout="vertical"
-              >
-                <template #default="{ index, style }">
-                  <div class="list-item_primary" :style="style">
-                    <el-checkbox :label="tableListWithSearch[index].tableName">
-                      <el-icon size="16" style="margin-right: 8px">
-                        <icon_form_outlined></icon_form_outlined>
-                      </el-icon>
-                      {{ tableListWithSearch[index].tableName }}</el-checkbox
-                    >
-                  </div>
-                </template>
-              </FixedSizeList>
-            </el-checkbox-group>
-          </div>
+              <template #default="{ index, style }">
+                <div class="list-item_primary" :style="style">
+                  <el-checkbox :label="tableListWithSearch[index].tableName">
+                    <el-icon size="16" style="margin-right: 8px">
+                      <icon_form_outlined></icon_form_outlined>
+                    </el-icon>
+                    {{ tableListWithSearch[index].tableName }}</el-checkbox
+                  >
+                </div>
+              </template>
+            </FixedSizeList>
+          </el-checkbox-group>
         </div>
       </div>
     </div>
@@ -1025,7 +775,7 @@ defineExpose({
         {{ t('common.next') }}
       </el-button>
       <el-button v-show="activeStep === 2 || !isCreate" type="primary" @click="save(dsFormRef)">
-        {{ props.concatenateMode ? '合并文件' : t('common.save') }}
+        {{ t('common.save') }}
       </el-button>
     </div>
   </div>
@@ -1208,50 +958,6 @@ defineExpose({
         content: '*';
         color: #f54a45;
         margin-left: 2px;
-      }
-    }
-  }
-}
-
-.concatenate-confirm {
-  padding: 20px;
-  
-  .title {
-    font-weight: 500;
-    font-size: 16px;
-    line-height: 24px;
-    margin-bottom: 20px;
-  }
-  
-  .file-list {
-    margin-bottom: 24px;
-    
-    .subtitle {
-      font-weight: 500;
-      margin-bottom: 12px;
-      color: #606266;
-    }
-    
-    .file-item {
-      display: flex;
-      align-items: center;
-      padding: 8px 12px;
-      background: #f5f7fa;
-      border-radius: 4px;
-      margin-bottom: 8px;
-      
-      .el-icon {
-        margin-right: 8px;
-        font-size: 16px;
-      }
-      
-      span {
-        margin-right: 8px;
-      }
-      
-      .file-size {
-        color: #909399;
-        font-size: 12px;
       }
     }
   }

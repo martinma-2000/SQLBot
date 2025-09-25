@@ -308,6 +308,15 @@
     "go_add": "Add",
     "get_schema": "Get Schema"
   },
+  "merge": {
+    "vertical_merge": "Vertical Merge",
+    "horizontal_merge": "Horizontal Merge",
+    "select_multiple_files": "Please select multiple files (multi-upload supported)",
+    "drop_or_click": "Drag files here or click to upload",
+    "merge_and_upload": "Merge and Create Datasource",
+    "separator": "Separator",
+    "primary_key_col": "Primary Key Column (Index)"
+  },
   "model": {
     "default_model": "Default model",
     "model_type": "Model type",
