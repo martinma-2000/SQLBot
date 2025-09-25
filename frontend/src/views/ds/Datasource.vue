@@ -10,6 +10,8 @@ import DataTable from './DataTable.vue'
 import icon_done_outlined from '@/assets/svg/icon_done_outlined.svg'
 import { datasourceApi } from '@/api/datasource'
 import AddDrawer from '@/views/ds/AddDrawer.vue'
+import VerticalMergeDrawer from '@/views/ds/VerticalMergeDrawer.vue'
+import HorizontalMergeDrawer from '@/views/ds/HorizontalMergeDrawer.vue'
 import Card from './Card.vue'
 import { useEmitt } from '@/utils/useEmitt'
 import DelMessageBox from './DelMessageBox.vue'
@@ -33,6 +35,8 @@ const { t } = useI18n()
 const keywords = ref('')
 const defaultDatasourceKeywords = ref('')
 const addDrawerRef = ref()
+const verticalMergeRef = ref()
+const horizontalMergeRef = ref()
 const searchLoading = ref(false)
 
 const datasourceList = shallowRef([] as Datasource[])
@@ -117,8 +121,12 @@ const handleAddDatasource = () => {
   addDrawerRef.value.handleAddDatasource()
 }
 
-const handleConcatenateDatasource = () => {
-  addDrawerRef.value.handleConcatenateDatasource()
+const handleVerticalMerge = () => {
+  verticalMergeRef.value.open()
+}
+
+const handleHorizontalMerge = () => {
+  horizontalMergeRef.value.open()
 }
 
 const refreshData = () => {
@@ -268,12 +276,11 @@ useEmitt({
           </template>
           {{ $t('datasource.new_data_source') }}
         </el-button>
-        
-        <el-button type="primary" style="margin-left: 12px" @click="handleConcatenateDatasource">
-          <template #icon>
-            <icon_add_outlined></icon_add_outlined>
-          </template>
-          纵向合并
+        <el-button type="primary" plain @click="handleVerticalMerge">
+          {{ $t('merge.vertical_merge') }}
+        </el-button>
+        <el-button type="primary" plain @click="handleHorizontalMerge">
+          {{ $t('merge.horizontal_merge') }}
         </el-button>
       </div>
     </div>
@@ -330,6 +337,8 @@ useEmitt({
     </template>
 
     <AddDrawer ref="addDrawerRef" @search="search"></AddDrawer>
+    <VerticalMergeDrawer ref="verticalMergeRef" @refresh="search" />
+    <HorizontalMergeDrawer ref="horizontalMergeRef" @refresh="search" />
   </div>
   <DataTable
     v-if="currentDataTable"

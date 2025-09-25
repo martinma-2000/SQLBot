@@ -308,6 +308,18 @@
     "go_add": "去添加",
     "get_schema": "获取Schema"
   },
+  "merge": {
+    "vertical_merge": "纵向合并",
+    "horizontal_merge": "横向合并",
+    "select_multiple_files": "请选择多个文件（支持多文件上传）",
+    "drop_or_click": "拖拽文件到此处，或点击上传",
+    "merge_and_upload": "合并并创建数据源",
+    "separator": "分隔符",
+    "separator_placeholder": "请输入分隔符，默认为下划线",
+    "time_column": "时间列",
+    "time_column_placeholder": "请输入时间列索引，默认为0",
+    "primary_key_col": "主键列（索引）"
+  },
   "model": {
     "default_model": "默认模型",
     "model_type": "模型类型",

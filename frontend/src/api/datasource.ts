@@ -23,9 +23,14 @@ export const datasourceApi = {
   getDs: (id: number) => request.post(`/datasource/get/${id}`),
   cancelRequests: () => request.cancelRequests(),
   getSchema: (data: any) => request.post('/datasource/getSchemaByConf', data),
-  concatenateExcels: (formData: FormData) => request.post('/datasource/concatenateExcels', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data'
-    }
-  }),
+  // Upload multiple excel/csv files to concatenate vertically on server, returns merged file blob
+  concatenateExcels: (formData: FormData) =>
+    request.post('/datasource/concatenateExcels', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+  // Upload multiple excel/csv files to merge horizontally on server, returns merged file blob
+  mergeExcelsHorizontally: (formData: FormData) =>
+    request.post('/datasource/mergeExcelsHorizontally', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
 }
