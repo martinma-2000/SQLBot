@@ -315,6 +315,9 @@
     "drop_or_click": "拖拽文件到此处，或点击上传",
     "merge_and_upload": "合并并创建数据源",
     "separator": "分隔符",
+    "separator_placeholder": "请输入分隔符，默认为下划线",
+    "time_column": "时间列",
+    "time_column_placeholder": "请输入时间列索引，默认为0",
     "primary_key_col": "主键列（索引）"
   },
   "model": {

@@ -455,12 +455,13 @@ async def concatenate_excels(
 
 @router.post("/mergeExcelsHorizontally")
 async def merge_excels_horizontally(
+    session: SessionDep,
     files: List[UploadFile] = File(...),
     separator: str = Form("_"),
     time_col: int = Form(0)
 ):
     """
-    横向合并多个Excel文件，基于相同的时间列
+    横向合并多个Excel文件，基于相同的时间列并创建数据源
 
     参数:
     - files: 上传的多个Excel文件
@@ -468,7 +469,7 @@ async def merge_excels_horizontally(
     - time_col: 时间列索引，默认为0（第一列）
 
     返回:
-    - 合并后的Excel文件
+    - dict: 合并后的文件信息和数据表信息
     """
     ALLOWED_EXTENSIONS = {"xlsx", "xls"}
 
@@ -504,17 +505,36 @@ async def merge_excels_horizontally(
         merged_path = os.path.join(path, merged_filename)
         result_df.to_excel(merged_path, index=False)
 
-        # 返回文件供下载
-        return FileResponse(
-            path=merged_path,
-            filename=merged_filename,
-            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
+        # 直接处理合并后的文件，类似uploadExcel的逻辑
+        def inner():
+            sheets = []
+            engine = get_engine_conn()
+
+            # 读取合并后的Excel文件
+            sheet_names = pd.ExcelFile(merged_path).sheet_names
+            for sheet_name in sheet_names:
+                tableName = f"{sheet_name}_{hashlib.sha256(uuid.uuid4().bytes).hexdigest()[:10]}"
+                sheets.append({"tableName": tableName, "tableComment": "Merged horizontally data"})
+                df = pd.read_excel(merged_path, sheet_name=sheet_name, engine='calamine')
+                insert_pg(df, tableName, engine)
+
+            return {"filename": merged_filename, "sheets": sheets}
+
+        result = await asyncio.to_thread(inner)
+
+        # 清理临时文件
+        for file_path in file_paths:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+
+        return result
     except Exception as e:
         # 删除临时文件
         for file_path in file_paths:
             if os.path.exists(file_path):
                 os.remove(file_path)
+        if 'merged_path' in locals() and os.path.exists(merged_path):
+            os.remove(merged_path)
         raise HTTPException(500, f"横向合并文件时出错: {str(e)}")
 
 
