@@ -4,6 +4,32 @@
 import pandas as pd
 from typing import List
 
+def find_org_differences(reference_col, current_col):
+    """
+    找出当前列与参考列中所有不一致的行值
+
+    参数：
+        reference_col: 参考列
+        current_col: 当前列
+
+    返回：
+        包含差异行的DtaFrame
+    """
+
+    # 创建临时 DataFrame 方便比较
+    temp_df = pd.DataFrame({'reference': reference_col, 'current': current_col})
+
+    # 找出不一致的行
+    differences = temp_df[~temp_df['reference'].eq(temp_df['current'])]
+
+    if differences.empty:
+        print("√ 所有列值完全一致，没有发现任何差异")
+        return None
+    else:
+        print("× 以下行存在差异：")
+        print(differences)
+        return differences
+
 
 def merge_dataframes_horizontally(dataframes: List[pd.DataFrame], time_col: int = 0) -> pd.DataFrame:
     """
@@ -51,6 +77,9 @@ def merge_dataframes_horizontally(dataframes: List[pd.DataFrame], time_col: int 
         
         # 检查机构列值是否一致
         if not df.iloc[:, 0].equals(reference_org_col):
+            differences = find_org_differences(reference_org_col, df.iloc[:, 0])
+            if differences is not None:
+                print(differences)
             raise ValueError(f"第{i+1}个DataFrame的机构列值与第一个不一致\n"
                              f"请确保所有DataFrame的机构元素完全相同")
         
