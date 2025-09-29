@@ -191,7 +191,7 @@ class ExcelHeaderProcessor:
                 column_name = column_name.strip(self.separator)  # 去除首尾分隔符
                 
                 # 再次清理 "_数字" 格式的无效字段
-                column_name = re.sub(r'_\d+', '', column_name)
+                # column_name = re.sub(r'_\d+', '', column_name)
                 
                 # 如果处理后仍然没有有意义的内容，则使用默认列名
                 if not column_name or not self._is_meaningful_part(column_name):
@@ -212,11 +212,17 @@ class ExcelHeaderProcessor:
         
         return df
 
-    def parse_chinese_date(self,date_str):
+    def parse_chinese_date(self, date_str):
         try:
             # 尝试按照 "YYYY年M月" 格式解析
-            formatted_str = date_str.replace('年', '-').replace('月', '')
-            return pd.Period(formatted_str, freq='M')
+            if '日' in date_str:
+                # 处理年月日格式：YYYY年M月D日
+                formatted_str = date_str.replace('年', '-').replace('月', '-').replace('日', '')
+                return pd.Period(formatted_str, freq='D')
+            else:
+                # 处理年月格式：YYYY年M月
+                formatted_str = date_str.replace('年', '-').replace('月', '')
+                return pd.Period(formatted_str, freq='M')
         except Exception as e:
             print(f"无法解析日期字符串: {date_str}, 错误: {e}")
             return pd.NaT  # 返回 Not a Time 表示无效时间
@@ -226,7 +232,7 @@ class ExcelHeaderProcessor:
 
 # 使用示例
 if __name__ == "__main__":
-    excel_file = r"D:\文档-陕农信\测试文件示例\27000099_202509_元_银行卡业务月度运营报表.xlsx"
+    excel_file = r"D:\文档-陕农信\测试文件示例\27000099_202509_银行卡发卡统计表6少机构.xlsx"
     
     try:
         # 创建处理器实例
@@ -241,9 +247,9 @@ if __name__ == "__main__":
 
         df['表格日期'] = processor.parse_chinese_date(_time)
 
-        for i in df.values:
-            print(i)
+
         df.to_excel(excel_name+"_单极表头.xlsx", index=False)
+        print(excel_name+"_单极表头.xlsx")
         
     except Exception as e:
         print(f"处理文件时出错: {e}")
