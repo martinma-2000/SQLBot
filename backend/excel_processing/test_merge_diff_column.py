@@ -1,6 +1,6 @@
 import pytest
 import pandas as pd
-from test.merge_diff_column import find_org_differences
+from excel_processing.merge_diff_column import find_org_differences
 
 
 class TestFindOrgDifferences:

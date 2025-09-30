@@ -161,7 +161,7 @@ def merge_excel_files_horizontally(file_paths: List[str], time_col: int = 0, she
 if __name__ == "__main__":
     # 示例用法
 
-    df1 = pd.read_excel(r"D:\文档-陕农信\测试文件示例\27000099_202509_银行卡发卡统计表_单极表头8月.xlsx")
-    df2 = pd.read_excel(r"D:\文档-陕农信\测试文件示例\27000099_202509_元_银行卡业务月度运营报表_单极表头.xlsx")
+    df1 = pd.read_excel(r"D:\文档-陕农信\测试文件示例\27000099_202509_元_银行卡业务月度运营报表_单极表头少机构.xlsx")
+    df2 = pd.read_excel(r"D:\文档-陕农信\测试文件示例\银行卡发卡统计表_单极表头.xlsx")
     result = merge_dataframes_horizontally([df1, df2], time_col=0)
     result.to_excel(r"D:\文档-陕农信\测试文件示例\横向合并.xlsx", index=False)

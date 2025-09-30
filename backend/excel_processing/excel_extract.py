@@ -1,6 +1,6 @@
 import pandas as pd
 import re
-from test.merge_diff_time import concatenate_dataframes
+from excel_processing.merge_diff_time import concatenate_dataframes
 
 
 class ExcelHeaderProcessor:
@@ -232,7 +232,7 @@ class ExcelHeaderProcessor:
 
 # 使用示例
 if __name__ == "__main__":
-    excel_file = r"D:\文档-陕农信\测试文件示例\27000099_202509_银行卡发卡统计表6少机构.xlsx"
+    excel_file = r"D:\文档-陕农信\测试文件示例\27000099_202509_银行卡发卡统计表9 (2).xlsx"
     
     try:
         # 创建处理器实例
