@@ -50,7 +50,9 @@ const routerList = computed(() => {
       !route.path.includes('canvas') &&
       !route.path.includes('member') &&
       !route.path.includes('professional') &&
+      !route.path.includes('401') &&
       !route.path.includes('training') &&
+      !route.path.includes('prompt') &&
       !route.path.includes('permission') &&
       !route.path.includes('preview') &&
       route.path !== '/login' &&

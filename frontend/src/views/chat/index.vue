@@ -16,7 +16,8 @@
       v-model:current-chat-id="currentChatId"
       v-model:current-chat="currentChat"
       v-model:loading="loading"
-      :in-popover="!chatListSideBarShow"
+      in-popover
+      :appName="customName"
       @go-empty="goEmpty"
       @on-chat-created="onChatCreated"
       @on-click-history="onClickHistory"
@@ -36,6 +37,7 @@
         v-model:current-chat="currentChat"
         v-model:loading="loading"
         :in-popover="!chatListSideBarShow"
+        :appName="customName"
         @go-empty="goEmpty"
         @on-chat-created="onChatCreated"
         @on-click-history="onClickHistory"
@@ -70,6 +72,7 @@
           v-model:current-chat="currentChat"
           v-model:loading="loading"
           :in-popover="!chatListSideBarShow"
+          :appName="customName"
           @go-empty="goEmpty"
           @on-chat-created="onChatCreated"
           @on-click-history="onClickHistory"
@@ -94,6 +97,7 @@
           v-model:current-chat-id="currentChatId"
           v-model:current-chat="currentChat"
           v-model:loading="loading"
+          :appName="customName"
           :in-popover="false"
           @go-empty="goEmpty"
           @on-chat-created="onChatCreated"
@@ -195,6 +199,7 @@
                   :first-chat="message.first_chat"
                   @click-question="quickAsk"
                   @stop="onChatStop"
+                  @loadingOver="loadingOver"
                 />
                 <UserChat v-if="message.role === 'user'" :message="message" />
                 <template v-if="message.role === 'assistant' && !message.first_chat">
@@ -211,6 +216,7 @@
                     :current-chat-id="currentChatId"
                     :loading="isTyping"
                     :message="message"
+                    @scrollBottom="scrollToBottom"
                     :reasoning-name="['sql_answer', 'chart_answer']"
                     @finish="onChartAnswerFinish"
                     @error="onChartAnswerError"
@@ -286,6 +292,7 @@
                         :first-chat="message.first_chat"
                         :disabled="isTyping"
                         @click-question="quickAsk"
+                        @loadingOver="loadingOver"
                         @stop="onChatStop"
                       />
                     </template>
@@ -321,6 +328,7 @@
                     :current-chat-id="currentChatId"
                     :loading="isTyping"
                     :message="message"
+                    @scrollBottom="scrollToBottom"
                     @finish="onPredictAnswerFinish"
                     @error="onPredictAnswerError"
                     @stop="onChatStop"
@@ -415,6 +423,8 @@ import icon_send_filled from '@/assets/svg/icon_send_filled.svg'
 import { useAssistantStore } from '@/stores/assistant'
 import { onClickOutside } from '@vueuse/core'
 import { useUserStore } from '@/stores/user'
+import { debounce } from 'lodash-es'
+
 import router from '@/router'
 const userStore = useUserStore()
 const props = defineProps<{
@@ -422,6 +432,7 @@ const props = defineProps<{
   welcomeDesc?: string
   logoAssistant?: string
   welcome?: string
+  appName?: string
   pageEmbedded?: boolean
 }>()
 const floatPopoverRef = ref()
@@ -435,7 +446,10 @@ const defaultFloatPopoverStyle = ref({
 })
 
 const isCompletePage = computed(() => !assistantStore.getAssistant || assistantStore.getEmbedded)
-
+const customName = computed(() => {
+  if (!isCompletePage.value && props.pageEmbedded) return props.appName
+  return ''
+})
 const { t } = useI18n()
 
 const inputMessage = ref('')
@@ -444,14 +458,15 @@ const chatListRef = ref()
 const innerRef = ref()
 const chatCreatorRef = ref()
 
-function scrollToBottom() {
+const scrollToBottom = debounce(() => {
+  if (scrolling) return
   nextTick(() => {
     chatListRef.value?.scrollTo({
       top: chatListRef.value.wrapRef.scrollHeight,
       behavior: 'smooth',
     })
   })
-}
+}, 300)
 
 const loading = ref<boolean>(false)
 const chatList = ref<Array<ChatInfo>>([])
@@ -501,14 +516,17 @@ let scrollTopVal = 0
 let scrolling = false
 const scrollBottom = () => {
   if (scrolling) return
-  if (!isTyping.value) {
+  if (!isTyping.value && !getRecommendQuestionsLoading.value) {
     clearInterval(scrollTime)
+  }
+  if (!chatListRef.value) {
+    clearInterval(scrollTime)
+    return
   }
   chatListRef.value!.setScrollTop(innerRef.value!.clientHeight)
 }
 
 const handleScroll = (val: any) => {
-  if (!isCompletePage.value) return
   scrollTopVal = val.scrollTop
   scrolling = true
   clearTimeout(scrollingTime)
@@ -671,11 +689,16 @@ function quickAsk(question: string) {
 }
 
 const chartAnswerRef = ref()
-
+const getRecommendQuestionsLoading = ref(false)
 async function onChartAnswerFinish(id: number) {
+  getRecommendQuestionsLoading.value = true
   loading.value = false
   isTyping.value = false
   getRecommendQuestions(id)
+}
+
+const loadingOver = () => {
+  getRecommendQuestionsLoading.value = false
 }
 
 function onChartAnswerError() {
@@ -708,7 +731,7 @@ const sendMessage = async ($event: any = {}) => {
 
   loading.value = true
   isTyping.value = true
-  if (isCompletePage.value) {
+  if (isCompletePage.value && innerRef.value) {
     scrollTopVal = innerRef.value!.clientHeight
     scrollTime = setInterval(() => {
       scrollBottom()
@@ -728,6 +751,12 @@ const sendMessage = async ($event: any = {}) => {
   inputMessage.value = ''
 
   nextTick(async () => {
+    if (!isCompletePage.value && innerRef.value) {
+      scrollTopVal = innerRef.value!.clientHeight
+      scrollTime = setInterval(() => {
+        scrollBottom()
+      }, 300)
+    }
     const index = currentChat.value.records.length - 1
     if (chartAnswerRef.value) {
       if (chartAnswerRef.value instanceof Array) {

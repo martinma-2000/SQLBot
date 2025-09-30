@@ -3,6 +3,7 @@ services:
     image: dataease/sqlbot
     container_name: sqlbot
     restart: always
+    privileged: true
     networks:
       - sqlbot-network
     ports:
@@ -29,6 +30,7 @@ services:
       SQL_DEBUG: False
     volumes:
       - ./data/sqlbot/excel:/opt/sqlbot/data/excel
+      - ./data/sqlbot/file:/opt/sqlbot/data/file
       - ./data/sqlbot/images:/opt/sqlbot/images
       - ./data/sqlbot/logs:/opt/sqlbot/app/logs
       - ./data/postgresql:/var/lib/postgresql/data

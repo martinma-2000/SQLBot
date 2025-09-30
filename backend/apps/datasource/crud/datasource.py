@@ -4,13 +4,16 @@ from typing import List, Optional
 
 from fastapi import HTTPException
 from sqlalchemy import and_, text
+from sqlbot_xpack.permissions.models.ds_rules import DsRules
 from sqlmodel import select
 
 from apps.datasource.crud.permission import get_column_permission_fields, get_row_permission_filters, is_normal_user
+from apps.datasource.embedding.table_embedding import get_table_embedding
 from apps.datasource.utils.utils import aes_decrypt
 from apps.db.constant import DB
 from apps.db.db import get_tables, get_fields, exec_sql, check_connection
 from apps.db.engine import get_engine_config, get_engine_conn
+from common.core.config import settings
 from common.core.deps import SessionDep, CurrentUser, Trans
 from common.utils.utils import deepcopy_ignore_extra
 from .table import get_tables_by_ds_id
@@ -249,8 +252,9 @@ def preview(session: SessionDep, current_user: CurrentUser, id: int, data: Table
     f_list = [f for f in data.fields if f.checked]
     if is_normal_user(current_user):
         # column is checked, and, column permission for data.fields
+        contain_rules = session.query(DsRules).all()
         f_list = get_column_permission_fields(session=session, current_user=current_user, table=data.table,
-                                              fields=f_list)
+                                              fields=f_list, contain_rules=contain_rules)
 
         # row permission tree
         where_str = ''
@@ -275,7 +279,7 @@ def preview(session: SessionDep, current_user: CurrentUser, id: int, data: Table
         sql = f"""SELECT TOP 100 [{"], [".join(fields)}] FROM [{conf.dbSchema}].[{data.table.table_name}]
             {where} 
             """
-    elif ds.type == "pg" or ds.type == "excel" or ds.type == "redshift":
+    elif ds.type == "pg" or ds.type == "excel" or ds.type == "redshift" or ds.type == "kingbase":
         sql = f"""SELECT "{'", "'.join(fields)}" FROM "{conf.dbSchema}"."{data.table.table_name}" 
             {where} 
             LIMIT 100"""
@@ -335,42 +339,122 @@ def get_table_obj_by_ds(session: SessionDep, current_user: CurrentUser, ds: Core
     tables = session.query(CoreTable).filter(CoreTable.ds_id == ds.id).all()
     conf = DatasourceConf(**json.loads(aes_decrypt(ds.configuration))) if ds.type != "excel" else get_engine_config()
     schema = conf.dbSchema if conf.dbSchema is not None and conf.dbSchema != "" else conf.database
+
+    # get all field
+    table_ids = [table.id for table in tables]
+    all_fields = session.query(CoreField).filter(
+        and_(CoreField.table_id.in_(table_ids), CoreField.checked == True)).all()
+    # build dict
+    fields_dict = {}
+    for field in all_fields:
+        if fields_dict.get(field.table_id):
+            fields_dict.get(field.table_id).append(field)
+        else:
+            fields_dict[field.table_id] = [field]
+
+    contain_rules = session.query(DsRules).all()
     for table in tables:
-        fields = session.query(CoreField).filter(and_(CoreField.table_id == table.id, CoreField.checked == True)).all()
+        # fields = session.query(CoreField).filter(and_(CoreField.table_id == table.id, CoreField.checked == True)).all()
+        fields = fields_dict.get(table.id)
 
         # do column permissions, filter fields
-        fields = get_column_permission_fields(session=session, current_user=current_user, table=table, fields=fields)
+        fields = get_column_permission_fields(session=session, current_user=current_user, table=table, fields=fields,
+                                              contain_rules=contain_rules)
         _list.append(TableAndFields(schema=schema, table=table, fields=fields))
     return _list
 
 
-def get_table_schema(session: SessionDep, current_user: CurrentUser, ds: CoreDatasource) -> str:
+def get_table_schema(session: SessionDep, current_user: CurrentUser, ds: CoreDatasource, question: str,
+                     embedding: bool = True) -> str:
     schema_str = ""
     table_objs = get_table_obj_by_ds(session=session, current_user=current_user, ds=ds)
     if len(table_objs) == 0:
         return schema_str
     db_name = table_objs[0].schema
     schema_str += f"【DB_ID】 {db_name}\n【Schema】\n"
+    tables = []
+    all_tables = []  # temp save all tables
     for obj in table_objs:
-        schema_str += f"# Table: {db_name}.{obj.table.table_name}" if ds.type != "mysql" and ds.type != "es" else f"# Table: {obj.table.table_name}"
+        schema_table = ''
+        schema_table += f"# Table: {db_name}.{obj.table.table_name}" if ds.type != "mysql" and ds.type != "es" else f"# Table: {obj.table.table_name}"
         table_comment = ''
         if obj.table.custom_comment:
             table_comment = obj.table.custom_comment.strip()
         if table_comment == '':
-            schema_str += '\n[\n'
+            schema_table += '\n[\n'
         else:
-            schema_str += f", {table_comment}\n[\n"
+            schema_table += f", {table_comment}\n[\n"
 
-        field_list = []
-        for field in obj.fields:
-            field_comment = ''
-            if field.custom_comment:
-                field_comment = field.custom_comment.strip()
-            if field_comment == '':
-                field_list.append(f"({field.field_name}:{field.field_type})")
-            else:
-                field_list.append(f"({field.field_name}:{field.field_type}, {field_comment})")
-        schema_str += ",\n".join(field_list)
-        schema_str += '\n]\n'
-    # todo 外键
+        if obj.fields:
+            field_list = []
+            for field in obj.fields:
+                field_comment = ''
+                if field.custom_comment:
+                    field_comment = field.custom_comment.strip()
+                if field_comment == '':
+                    field_list.append(f"({field.field_name}:{field.field_type})")
+                else:
+                    field_list.append(f"({field.field_name}:{field.field_type}, {field_comment})")
+            schema_table += ",\n".join(field_list)
+        schema_table += '\n]\n'
+
+        t_obj = {"id": obj.table.id, "schema_table": schema_table}
+        tables.append(t_obj)
+        all_tables.append(t_obj)
+
+    # do table embedding
+    if embedding and tables and settings.TABLE_EMBEDDING_ENABLED:
+        tables = get_table_embedding(session, current_user, tables, question)
+    # splice schema
+    if tables:
+        for s in tables:
+            schema_str += s.get('schema_table')
+
+    # field relation
+    if tables and ds.table_relation:
+        relations = list(filter(lambda x: x.get('shape') == 'edge', ds.table_relation))
+        if relations:
+            # Complete the missing table
+            # get tables in relation, remove irrelevant relation
+            embedding_table_ids = [s.get('id') for s in tables]
+            all_relations = list(
+                filter(lambda x: x.get('source').get('cell') in embedding_table_ids or x.get('target').get(
+                    'cell') in embedding_table_ids, relations))
+
+            # get relation table ids, sub embedding table ids
+            relation_table_ids = []
+            for r in all_relations:
+                relation_table_ids.append(r.get('source').get('cell'))
+                relation_table_ids.append(r.get('target').get('cell'))
+            relation_table_ids = list(set(relation_table_ids))
+            # get table dict
+            table_records = session.query(CoreTable).filter(CoreTable.id.in_(list(map(int, relation_table_ids)))).all()
+            table_dict = {}
+            for ele in table_records:
+                table_dict[ele.id] = ele.table_name
+
+            # get lost table ids
+            lost_table_ids = list(set(relation_table_ids) - set(embedding_table_ids))
+            # get lost table schema and splice it
+            lost_tables = list(filter(lambda x: x.get('id') in lost_table_ids, all_tables))
+            if lost_tables:
+                for s in lost_tables:
+                    schema_str += s.get('schema_table')
+
+            # get field dict
+            relation_field_ids = []
+            for relation in all_relations:
+                relation_field_ids.append(relation.get('source').get('port'))
+                relation_field_ids.append(relation.get('target').get('port'))
+            relation_field_ids = list(set(relation_field_ids))
+            field_records = session.query(CoreField).filter(CoreField.id.in_(list(map(int, relation_field_ids)))).all()
+            field_dict = {}
+            for ele in field_records:
+                field_dict[ele.id] = ele.field_name
+
+            if all_relations:
+                schema_str += '【Foreign keys】\n'
+                for ele in all_relations:
+                    schema_str += f"{table_dict.get(int(ele.get('source').get('cell')))}.{field_dict.get(int(ele.get('source').get('port')))}={table_dict.get(int(ele.get('target').get('cell')))}.{field_dict.get(int(ele.get('target').get('port')))}\n"
+
     return schema_str

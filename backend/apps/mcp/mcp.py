@@ -1,6 +1,7 @@
 # Author: Junjun
 # Date: 2025/7/1
-
+import json
+import traceback
 from datetime import timedelta
 
 import jwt
@@ -10,15 +11,17 @@ from fastapi.responses import StreamingResponse
 from jwt.exceptions import InvalidTokenError
 from pydantic import ValidationError
 from sqlmodel import select
+from starlette.responses import JSONResponse
 
 from apps.chat.api.chat import create_chat
-from apps.chat.models.chat_model import ChatMcp, CreateChat, ChatStart, McpQuestion
+from apps.chat.models.chat_model import ChatMcp, CreateChat, ChatStart, McpQuestion, McpAssistant, ChatQuestion, \
+    ChatFinishStep
 from apps.chat.task.llm import LLMService
 from apps.system.crud.user import authenticate
 from apps.system.crud.user import get_db_user
 from apps.system.models.system_model import UserWsModel
 from apps.system.models.user import UserModel
-from apps.system.schemas.system_schema import BaseUserDTO
+from apps.system.schemas.system_schema import BaseUserDTO, AssistantHeader
 from apps.system.schemas.system_schema import UserInfoDTO
 from common.core import security
 from common.core.config import settings
@@ -106,8 +109,93 @@ async def mcp_question(session: SessionDep, chat: McpQuestion):
         raise HTTPException(status_code=400, detail="Inactive user")
 
     mcp_chat = ChatMcp(token=chat.token, chat_id=chat.chat_id, question=chat.question)
-    # ask
-    llm_service = await LLMService.create(session_user, mcp_chat)
-    llm_service.init_record()
 
-    return StreamingResponse(llm_service.run_task(False), media_type="text/event-stream")
+    try:
+        llm_service = await LLMService.create(session_user, mcp_chat)
+        llm_service.init_record()
+        llm_service.run_task_async(False, chat.stream)
+    except Exception as e:
+        traceback.print_exc()
+
+        if chat.stream:
+            def _err(_e: Exception):
+                yield str(_e) + '\n\n'
+
+            return StreamingResponse(_err(e), media_type="text/event-stream")
+        else:
+            return JSONResponse(
+                content={'message': str(e)},
+                status_code=500,
+            )
+    if chat.stream:
+        return StreamingResponse(llm_service.await_result(), media_type="text/event-stream")
+    else:
+        res = llm_service.await_result()
+        raw_data = {}
+        for chunk in res:
+            if chunk:
+                raw_data = chunk
+        status_code = 200
+        if not raw_data.get('success'):
+            status_code = 500
+
+        return JSONResponse(
+            content=raw_data,
+            status_code=status_code,
+        )
+
+
+@router.post("/mcp_assistant", operation_id="mcp_assistant")
+async def mcp_assistant(session: SessionDep, chat: McpAssistant):
+    session_user = BaseUserDTO(**{
+        "id": -1, "account": 'sqlbot-mcp-assistant', "oid": 1, "assistant_id": -1, "password": '', "language": "zh-CN"
+    })
+    # session_user: UserModel = get_db_user(session=session, user_id=1)
+    # session_user.oid = 1
+    c = create_chat(session, session_user, CreateChat(origin=1), False)
+
+    # build assistant param
+    configuration = {"endpoint": chat.url}
+    # authorization = [{"key": "x-de-token",
+    #                 "value": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1aWQiOjEsIm9pZCI6MSwiZXhwIjoxNzU4NTEyMDA2fQ.3NR-pgnADLdXZtI3dXX5-LuxfGYRvYD9kkr2de7KRP0",
+    #                 "target": "header"}]
+    mcp_assistant_header = AssistantHeader(id=1, name='mcp_assist', domain='', type=1,
+                                           configuration=json.dumps(configuration),
+                                           certificate=chat.authorization)
+
+    # assistant question
+    mcp_chat = ChatQuestion(chat_id=c.id, question=chat.question)
+    # ask
+    try:
+        llm_service = await LLMService.create(session_user, mcp_chat, mcp_assistant_header)
+        llm_service.init_record()
+        llm_service.run_task_async(False, chat.stream, ChatFinishStep.QUERY_DATA)
+    except Exception as e:
+        traceback.print_exc()
+
+        if chat.stream:
+            def _err(_e: Exception):
+                yield str(_e) + '\n\n'
+
+            return StreamingResponse(_err(e), media_type="text/event-stream")
+        else:
+            return JSONResponse(
+                content={'message': str(e)},
+                status_code=500,
+            )
+    if chat.stream:
+        return StreamingResponse(llm_service.await_result(), media_type="text/event-stream")
+    else:
+        res = llm_service.await_result()
+        raw_data = {}
+        for chunk in res:
+            if chunk:
+                raw_data = chunk
+        status_code = 200
+        if not raw_data.get('success'):
+            status_code = 500
+
+        return JSONResponse(
+            content=raw_data,
+            status_code=status_code,
+        )

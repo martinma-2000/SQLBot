@@ -33,21 +33,22 @@ const currentLanguage = computed(() => userStore.getLanguage)
 const isAdmin = computed(() => userStore.isAdmin)
 const dialogVisible = ref(false)
 const aboutRef = ref()
-const languageList = [
+const languageList = computed(() => [
   {
     name: 'English',
     value: 'en',
   },
   {
-    name: t('common.simplified_chinese'),
+    name: '简体中文',
     value: 'zh-CN',
-  } /* ,
+  },
   {
-    name: t('common.traditional_chinese'),
-    value: 'zh-CN',
-  }, */,
-]
+    name: '한국인',
+    value: 'ko-KR',
+  },
+])
 const popoverRef = ref()
+
 const toSystem = () => {
   popoverRef.value.hide()
   router.push('/system')

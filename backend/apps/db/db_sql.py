@@ -12,7 +12,7 @@ def get_version_sql(ds: CoreDatasource, conf: DatasourceConf):
         return """
                 select SERVERPROPERTY('ProductVersion')
                 """
-    elif ds.type == "pg" or ds.type == "excel":
+    elif ds.type == "pg" or ds.type == "kingbase" or ds.type == "excel":
         return """
               SELECT current_setting('server_version')
               """
@@ -140,6 +140,23 @@ def get_table_sql(ds: CoreDatasource, conf: DatasourceConf, db_version: str = ''
                 WHERE 
                     TABLE_SCHEMA = %s
                 """, conf.database
+    elif ds.type == "kingbase":
+        return """
+              SELECT c.relname                                       AS TABLE_NAME,
+                     COALESCE(d.description, obj_description(c.oid)) AS TABLE_COMMENT
+              FROM pg_class c
+                       LEFT JOIN
+                   pg_namespace n ON n.oid = c.relnamespace
+                       LEFT JOIN
+                   pg_description d ON d.objoid = c.oid AND d.objsubid = 0
+              WHERE n.nspname = '{0}'
+                AND c.relkind IN ('r', 'v', 'p', 'm')
+                AND c.relname NOT LIKE 'pg_%'
+                AND c.relname NOT LIKE 'sql_%'
+              ORDER BY c.relname \
+              """, conf.dbSchema
+    elif ds.type == "es":
+        return "", None
 
 
 def get_field_sql(ds: CoreDatasource, conf: DatasourceConf, table_name: str = None):
@@ -273,3 +290,21 @@ def get_field_sql(ds: CoreDatasource, conf: DatasourceConf, table_name: str = No
                 """
         sql2 = " AND TABLE_NAME = %s" if table_name is not None and table_name != "" else ""
         return sql1 + sql2, conf.database, table_name
+    elif ds.type == "kingbase":
+        sql1 = """
+                       SELECT a.attname                                       AS COLUMN_NAME,
+                              pg_catalog.format_type(a.atttypid, a.atttypmod) AS DATA_TYPE,
+                              col_description(c.oid, a.attnum)                AS COLUMN_COMMENT
+                       FROM pg_catalog.pg_attribute a
+                                JOIN
+                            pg_catalog.pg_class c ON a.attrelid = c.oid
+                                JOIN
+                            pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                       WHERE n.nspname = '{0}'
+                         AND a.attnum > 0
+                         AND NOT a.attisdropped \
+                       """
+        sql2 = " AND c.relname = '{1}'" if table_name is not None and table_name != "" else ""
+        return sql1 + sql2, conf.dbSchema, table_name
+    elif ds.type == "es":
+        return "", None, None

@@ -56,6 +56,7 @@ const defaultEmbedded = {
   name: '',
   type: 0,
   description: '',
+  configuration: '',
   domain: '',
 }
 const currentEmbedded = reactive<any>(cloneDeep(defaultEmbedded))
@@ -63,9 +64,11 @@ const currentEmbedded = reactive<any>(cloneDeep(defaultEmbedded))
 const isCreate = ref(false)
 const defaultForm = {
   oid: 1,
-  public_list: [] as any,
+  public_list: [],
+  private_list: [],
 }
-const dsForm = reactive(cloneDeep(defaultForm))
+
+const dsForm = reactive<{ [key: string]: any }>(cloneDeep(defaultForm))
 
 const defaultCertificateForm = {
   id: '',
@@ -116,6 +119,12 @@ const initWorkspace = () => {
 }
 const handleAddEmbedded = (val: any) => {
   Object.assign(currentEmbedded, cloneDeep(defaultEmbedded))
+  Object.keys(dsForm).forEach((ele) => {
+    if (!['oid', 'public_list', 'private_list'].includes(ele)) {
+      delete dsForm[ele]
+    }
+  })
+  Object.assign(urlForm, cloneDeep(defaultUrlForm))
   currentEmbedded.type = val
   if (val === 0) {
     handleBaseEmbedded(null)
@@ -784,7 +793,7 @@ const saveHandler = () => {
               autocomplete="off"
             />
           </el-form-item>
-          <el-form-item v-if="urlForm.encrypt" prop="aes_iv" label="AES IV">
+          <!-- <el-form-item v-if="urlForm.encrypt" prop="aes_iv" label="AES IV">
             <el-input
               v-model="urlForm.aes_iv"
               clearable
@@ -797,7 +806,7 @@ const saveHandler = () => {
               "
               autocomplete="off"
             />
-          </el-form-item>
+          </el-form-item> -->
           <el-form-item class="certificate-table_form" prop="certificate">
             <template #label>
               <div class="title-content">
