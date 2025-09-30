@@ -9,6 +9,11 @@ on:
         description: 'Image Tag'
         default: 'v0.9.5'
         required: true
+      packageEE:
+        description: '是否打包企业版'
+        default: false
+        required: true
+        type: boolean
 
 jobs:
   package-and-push-to-aliyun-oss:
@@ -31,6 +36,7 @@ jobs:
           ALIYUN_OSS_BUCKET_ENDPOINT: ${{ secrets.ALIYUN_OSS_BUCKET_ENDPOINT }}
           ALIYUN_OSS_ACCESS_KEY: ${{ secrets.ALIYUN_OSS_ACCESS_KEY }}
           ALIYUN_OSS_ACCESS_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_SECRET }}
+          PACKAGE_EE: ${{ github.event.inputs.packageEE }}
         run: |
           DOCKER_IMAGE=${ALIYUN_REGISTRY_HOST}/dataease/sqlbot
           cd installer
@@ -76,12 +82,27 @@ jobs:
           --exclude .git \
           --exclude images \
           --exclude docker \
-          -czvf $package_online . 
+          -czvf $package_online .
+          
+          if [[ ${PACKAGE_EE} == 'true' ]]; then 
+            package_offline_ee="sqlbot-offline-installer-${TAG_NAME}${platform}-ee.tar.gz"
+            touch $package_offline_ee
+            tar --transform "s/^\./sqlbot-offline-installer-${TAG_NAME}${platform}-ee/" \
+            --exclude $package_online \
+            --exclude $package_offline \
+            --exclude $package_offline_ee \
+            --exclude .git \
+            -czvf $package_offline_ee . 
+
+            ossutil cp -rf ${package_offline_ee} oss://$ALIYUN_OSS_BUCKET/sqlbot/${package_offline_ee} --access-key-id=$ALIYUN_OSS_ACCESS_KEY --access-key-secret=$ALIYUN_OSS_ACCESS_SECRET --endpoint=${ALIYUN_OSS_BUCKET_ENDPOINT}
+          fi
           
           #Sync files to OSS
-          ossutil cp -rf ${package_offline} oss://$ALIYUN_OSS_BUCKET/sqlbot/${package_offline} --access-key-id=$ALIYUN_OSS_ACCESS_KEY --access-key-secret=$ALIYUN_OSS_ACCESS_SECRET --endpoint=${ALIYUN_OSS_BUCKET_ENDPOINT}
+          ossutil cp -rf ${package_offline} oss://$ALIYUN_OSS_BUCKET/sqlbot/${package_offline} --access-key-id=$ALIYUN_OSS_ACCESS_KEY --access-key-secret=$ALIYUN_OSS_ACCESS_SECRET --endpoint=${ALIYUN_OSS_BUCKET_ENDPOINT}          
           ossutil cp -rf ${package_online} oss://$ALIYUN_OSS_BUCKET/sqlbot/${package_online} --access-key-id=$ALIYUN_OSS_ACCESS_KEY --access-key-secret=$ALIYUN_OSS_ACCESS_SECRET --endpoint=${ALIYUN_OSS_BUCKET_ENDPOINT}
 
   
   
+
+
 

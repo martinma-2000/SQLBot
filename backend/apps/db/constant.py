@@ -23,6 +23,7 @@ class DB(Enum):
     doris = ('doris', 'Apache Doris', '`', '`', ConnectType.py_driver)
     redshift = ('redshift', 'AWS Redshift', '"', '"', ConnectType.py_driver)
     es = ('es', 'Elasticsearch', '"', '"', ConnectType.py_driver)
+    kingbase = ('kingbase', 'Kingbase', '"', '"', ConnectType.py_driver)
 
     def __init__(self, type, db_name, prefix, suffix, connect_type: ConnectType):
         self.type = type

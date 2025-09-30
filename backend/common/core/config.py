@@ -96,10 +96,17 @@ class Settings(BaseSettings):
     EMBEDDING_TERMINOLOGY_TOP_COUNT: int = EMBEDDING_DEFAULT_TOP_COUNT
     EMBEDDING_DATA_TRAINING_TOP_COUNT: int = EMBEDDING_DEFAULT_TOP_COUNT
 
+    PARSE_REASONING_BLOCK_ENABLED: bool = True
+    DEFAULT_REASONING_CONTENT_START: str = '<think>'
+    DEFAULT_REASONING_CONTENT_END: str = '</think>'
+
     PG_POOL_SIZE: int = 20
     PG_MAX_OVERFLOW: int = 30
     PG_POOL_RECYCLE: int = 3600
     PG_POOL_PRE_PING: bool = True
+
+    TABLE_EMBEDDING_ENABLED: bool = False
+    TABLE_EMBEDDING_COUNT: int = 10
 
 
 settings = Settings()  # type: ignore

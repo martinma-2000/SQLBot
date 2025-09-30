@@ -17,10 +17,12 @@ import EmbeddedPage from '@/views/embedded/page.vue'
 import Member from '@/views/system/member/index.vue'
 import Professional from '@/views/system/professional/index.vue'
 import Training from '@/views/system/training/index.vue'
+import Prompt from '@/views/system/prompt/index.vue'
 import Appearance from '@/views/system/appearance/index.vue'
 import Permission from '@/views/system/permission/index.vue'
 import User from '@/views/system/user/User.vue'
 import Workspace from '@/views/system/workspace/index.vue'
+import Page401 from '@/views/error/index.vue'
 import { i18n } from '@/i18n'
 import { watchRouter } from './watch'
 
@@ -119,6 +121,12 @@ export const routes = [
         component: Training,
         meta: { title: t('training.data_training') },
       },
+      {
+        path: '/set/prompt',
+        name: 'prompt',
+        component: Prompt,
+        meta: { title: t('prompt.customize_prompt_words') },
+      },
     ],
   },
   {
@@ -206,6 +214,13 @@ export const routes = [
     path: '/assistantTest',
     name: 'assistantTest',
     component: assistantTest,
+  },
+  {
+    path: '/401',
+    name: '401',
+    hidden: true,
+    meta: {},
+    component: Page401,
   },
 ]
 const router = createRouter({
