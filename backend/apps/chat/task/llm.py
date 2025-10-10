@@ -62,6 +62,26 @@ db_session = session_maker()
 
 
 class LLMService:
+    """
+    LLMService类是SQLBot系统的核心服务类，负责处理与大语言模型(LLM)相关的所有操作。
+
+    该类主要功能包括：
+    1. 初始化和管理LLM实例
+    2. 处理用户查询并生成SQL语句
+    3. 执行SQL查询并处理结果
+    4. 生成图表和数据分析
+    5. 管理对话历史和上下文
+    6. 处理数据源选择和权限控制
+
+    主要属性:
+    - ds: 数据源对象
+    - chat_question: 用户提问的封装对象
+    - record: 对话记录
+    - config: LLM配置
+    - llm: 实际的LLM实例
+    - sql_message/chart_message: 对话消息历史
+    - session: 数据库会话
+    """
     ds: CoreDatasource
     chat_question: ChatQuestion
     record: ChatRecord
@@ -1208,7 +1228,6 @@ class LLMService:
 
     def run_analysis_or_predict_task(self, action_type: str):
         try:
-
             yield 'data:' + orjson.dumps({'type': 'id', 'id': self.get_record().id}).decode() + '\n\n'
 
             if action_type == 'analysis':
@@ -1219,7 +1238,6 @@ class LLMService:
                         {'content': chunk.get('content'), 'reasoning_content': chunk.get('reasoning_content'),
                          'type': 'analysis-result'}).decode() + '\n\n'
                 yield 'data:' + orjson.dumps({'type': 'info', 'msg': 'analysis generated'}).decode() + '\n\n'
-
                 yield 'data:' + orjson.dumps({'type': 'analysis_finish'}).decode() + '\n\n'
 
             elif action_type == 'predict':
@@ -1238,7 +1256,6 @@ class LLMService:
                     yield 'data:' + orjson.dumps({'type': 'predict-success'}).decode() + '\n\n'
                 else:
                     yield 'data:' + orjson.dumps({'type': 'predict-failed'}).decode() + '\n\n'
-
                 yield 'data:' + orjson.dumps({'type': 'predict_finish'}).decode() + '\n\n'
 
             self.finish()
