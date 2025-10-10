@@ -234,6 +234,165 @@ const sendMessage = async () => {
   }
 }
 
+const validateSQL = (sql: string) => {
+  const sqlLower = sql.toLowerCase()
+  const ddlKeywords = ['create', 'drop', 'alter', 'truncate', 'rename', 'grant', 'revoke']
+
+  // 检查DDL语句
+  if (ddlKeywords.some(keyword => sqlLower.includes(keyword))) {
+    throw new Error('DDL statements are not allowed')
+  }
+
+  // 检查LIMIT子句
+  if (!sqlLower.includes('limit')) {
+    throw new Error('SQL must include LIMIT clause with maximum 1000 rows')
+  }
+
+  // 检查LIMIT值
+  const limitIndex = sqlLower.indexOf('limit')
+  if (limitIndex !== -1) {
+    const limitPart = sql.slice(limitIndex + 5).trim()
+    try {
+      const limitValue = parseInt(limitPart.split(/\s+/)[0])
+      if (limitValue > 1000) {
+        throw new Error('Maximum allowed LIMIT is 1000')
+      }
+    } catch {
+      throw new Error('Invalid LIMIT clause')
+    }
+  }
+}
+
+const executeSQL = async () => {
+  /* -------- 初始化状态 -------- */
+  stopFlag.value = false
+  _loading.value = true
+
+  /* -------- 检查索引有效性 -------- */
+  if (index.value < 0) {
+    _loading.value = false
+    return
+  }
+
+  /* -------- 获取当前记录 -------- */
+  const currentRecord: ChatRecord = _currentChat.value.records[index.value]
+
+  /* -------- 错误检查 -------- */
+  if (_currentChatId.value === undefined) {
+    _loading.value = false
+    return
+  }
+
+  /* -------- 验证SQL -------- */
+  try {
+    validateSQL(currentRecord.sql)
+  } catch (error) {
+    currentRecord.error = error.message
+    _loading.value = false
+    emits('error')
+    return
+  }
+
+  /* -------- 发送请求并处理响应 -------- */
+  try {
+    const controller: AbortController = new AbortController()
+    const param = {
+      sql: currentRecord.sql, // 直接使用用户输入的SQL
+      chat_id: _currentChatId.value,
+    }
+    const response = await questionApi.executeSQL(param, controller)
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder('utf-8')
+
+    let chart_answer = ''
+    let tempResult = ''
+
+    while (true) {
+      if (stopFlag.value) {
+        controller.abort()
+        break
+      }
+
+      const { done, value } = await reader.read()
+      if (done) {
+        _loading.value = false
+        break
+      }
+
+      let chunk = decoder.decode(value, { stream: true })
+      tempResult += chunk
+      const split = tempResult.match(/data:.*}\n\n/g)
+      if (split) {
+        chunk = split.join('')
+        tempResult = tempResult.replace(chunk, '')
+      } else {
+        continue
+      }
+
+      if (chunk && chunk.startsWith('data:{')) {
+        if (split) {
+          for (const str of split) {
+            let data
+            try {
+              data = JSON.parse(str.replace('data:{', '{'))
+            } catch (err) {
+              console.error('JSON string:', str)
+              throw err
+            }
+
+            if (data.code && data.code !== 200) {
+              ElMessage({
+                message: data.msg,
+                type: 'error',
+                showClose: true,
+              })
+              _loading.value = false
+              return
+            }
+
+            switch (data.type) {
+              case 'id':
+                currentRecord.id = data.id
+                _currentChat.value.records[index.value].id = data.id
+                break
+              case 'sql-data':
+                getChatData(_currentChat.value.records[index.value].id)
+                break
+              case 'chart-result':
+                chart_answer += data.reasoning_content
+                _currentChat.value.records[index.value].chart_answer = chart_answer
+                break
+              case 'chart':
+                _currentChat.value.records[index.value].chart = data.content
+                break
+              case 'finish':
+                emits('finish', currentRecord.id)
+                break
+              case 'error':
+                currentRecord.error = data.content
+                emits('error')
+                break
+            }
+            await nextTick()
+          }
+        }
+      }
+    }
+  } catch (error) {
+    if (!currentRecord.error) {
+      currentRecord.error = ''
+    }
+    if (currentRecord.error.trim().length !== 0) {
+      currentRecord.error = currentRecord.error + '\n'
+    }
+    currentRecord.error = currentRecord.error + 'Error:' + error
+    console.error('Error:', error)
+    emits('error')
+  } finally {
+    _loading.value = false
+  }
+}
+
 function getChatData(recordId?: number) {
   chatApi
     .get_chart_data(recordId)
@@ -264,7 +423,7 @@ onMounted(() => {
   }
 })
 
-defineExpose({ sendMessage, index: () => index.value, stop })
+defineExpose({ sendMessage, executeSQL, index: () => index.value, stop })
 </script>
 
 <template>

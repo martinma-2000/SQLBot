@@ -396,6 +396,14 @@
             @keydown.ctrl.enter.exact.prevent="handleCtrlEnter"
           />
           <el-button
+            type="primary"
+            class="execute-btn"
+            :disabled="!inputMessage.trim() || isTyping"
+            @click.stop="executeSQL"
+          >
+            {{ t('qa.execute_sql') }}
+          </el-button>
+          <el-button
             circle
             type="primary"
             class="input-icon"
@@ -810,6 +818,55 @@ const sendMessage = async ($event: any = {}) => {
   })
 }
 
+const executeSQL = async ($event: any = {}) => {
+  // 输入验证与基础处理
+  // 避免用户未完成输入时误触发发送
+  if ($event?.isComposing) {
+    return
+  }
+  // 避免发送空消息
+  if (!inputMessage.value.trim()) return
+
+  // 加载状态
+  loading.value = true
+  isTyping.value = true
+
+  // 预处理发送
+  await assistantPrepareSend()
+
+  // 创建消息记录
+  const currentRecord = new ChatRecord()
+  currentRecord.create_time = new Date()
+  currentRecord.chat_id = currentChatId.value
+  currentRecord.question = 'Execute SQL directly：' + inputMessage.value
+  currentRecord.sql_answer = ''
+  currentRecord.sql = inputMessage.value // 直接使用用户输入的SQL
+  currentRecord.chart_answer = ''
+  currentRecord.chart = ''
+
+  // 添加记录并清空输入
+  currentChat.value.records.push(currentRecord)
+  inputMessage.value = ''
+
+  // DOM更新后处理
+  nextTick(async () => {
+    const index = currentChat.value.records.length - 1
+    if (chartAnswerRef.value) {
+      if (chartAnswerRef.value instanceof Array) {
+        for (let i = 0; i < chartAnswerRef.value.length; i++) {
+          const _index = chartAnswerRef.value[i].index()
+          if (index === _index) {
+            await chartAnswerRef.value[i].executeSQL()
+            break
+          }
+        }
+      } else {
+        await chartAnswerRef.value.executeSQL()
+      }
+    }
+  })
+}
+
 const analysisAnswerRef = ref()
 
 async function onAnalysisAnswerFinish(id: number) {
@@ -1179,6 +1236,20 @@ onMounted(() => {
               color: #8f959e;
             }
           }
+        }
+      }
+
+      .execute-btn {
+        position: absolute;
+        bottom: 12px;
+        right: 60px;
+        border-radius: 16px;
+        padding: 0 16px;
+        height: 32px;
+
+        &.is-disabled {
+          background: rgba(187, 191, 196, 1);
+          border-color: unset;
         }
       }
 

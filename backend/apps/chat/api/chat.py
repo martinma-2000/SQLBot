@@ -134,12 +134,12 @@ async def recommend_questions(session: SessionDep, current_user: CurrentUser, ch
 async def stream_sql(session: SessionDep, current_user: CurrentUser, request_question: ChatQuestion,
                      current_assistant: CurrentAssistant):
     """Stream SQL analysis results
-    
+
     Args:
         session: Database session
         current_user: CurrentUser
         request_question: User question model
-        
+
     Returns:
         Streaming response with analysis results
     """
@@ -148,6 +148,45 @@ async def stream_sql(session: SessionDep, current_user: CurrentUser, request_que
         llm_service = await LLMService.create(current_user, request_question, current_assistant, embedding=True)
         llm_service.init_record()
         llm_service.run_task_async()
+    except Exception as e:
+        traceback.print_exc()
+
+        def _err(_e: Exception):
+            yield 'data:' + orjson.dumps({'content': str(_e), 'type': 'error'}).decode() + '\n\n'
+
+        return StreamingResponse(_err(e), media_type="text/event-stream")
+
+    return StreamingResponse(llm_service.await_result(), media_type="text/event-stream")
+
+
+@router.post("/execute-sql")
+async def execute_sql(session: SessionDep, current_user: CurrentUser, request: dict,
+                     current_assistant: CurrentAssistant):
+    """Execute SQL directly and return results
+
+    Args:
+        session: Database session
+        current_user: CurrentUser
+        request: {sql: string, chat_id: int}
+
+    Returns:
+        Streaming response with execution results
+    """
+    try:
+        # Create ChatQuestion object with provided SQL
+        user_sql = request.get('sql')
+        chat_question = ChatQuestion(
+            chat_id=request.get('chat_id'),
+            question="Execute SQL directly：" + user_sql,
+            sql=user_sql
+        )
+
+        llm_service = await LLMService.create(current_user, chat_question, current_assistant, embedding=False)
+        llm_service.init_record()
+
+        # Run task with direct SQL execution mode
+        llm_service.execute_direct_sql_async()
+
     except Exception as e:
         traceback.print_exc()
 

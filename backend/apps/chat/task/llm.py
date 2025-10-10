@@ -1217,6 +1217,197 @@ class LLMService:
         finally:
             self.finish()
 
+    def execute_direct_sql_async(self, in_chat: bool = True, stream: bool = True,
+                       finish_step: ChatFinishStep = ChatFinishStep.GENERATE_CHART):
+        if in_chat:
+            stream = True
+        self.future = executor.submit(self.execute_direct_sql_cache, in_chat, stream, finish_step)
+
+    def execute_direct_sql_cache(self, in_chat: bool = True, stream: bool = True,
+                       finish_step: ChatFinishStep = ChatFinishStep.GENERATE_CHART):
+        for chunk in self.execute_direct_sql_task(in_chat, stream, finish_step):
+            self.chunk_list.append(chunk)
+
+    def validate_sql(self, sql: str):
+        """Validate SQL before execution
+
+        Args:
+            sql: SQL to validate
+
+        Raises:
+            SingleMessageError: If SQL is invalid
+        """
+        # Check for DDL statements
+        ddl_keywords = ['create', 'drop', 'alter', 'truncate', 'rename', 'grant', 'revoke']
+        sql_lower = sql.lower()
+        if any(keyword in sql_lower for keyword in ddl_keywords):
+            raise SingleMessageError('DDL statements are not allowed')
+
+        # Check for LIMIT clause
+        if 'limit' not in sql_lower:
+            raise SingleMessageError('SQL must include LIMIT clause with maximum 1000 rows')
+
+        # Parse LIMIT value
+        limit_index = sql_lower.find('limit')
+        if limit_index != -1:
+            limit_part = sql[limit_index + 5:].strip()
+            try:
+                limit_value = int(limit_part.split()[0])
+                if limit_value > 1000:
+                    raise SingleMessageError('Maximum allowed LIMIT is 1000')
+            except (ValueError, IndexError):
+                raise SingleMessageError('Invalid LIMIT clause')
+
+    def execute_direct_sql_task(self, in_chat: bool = True, stream: bool = True,
+                               finish_step: ChatFinishStep = ChatFinishStep.GENERATE_CHART):
+        """Execute SQL directly without generating SQL via LLM
+
+        Args:
+            in_chat: Whether in chat mode
+            stream: Whether to stream response
+            finish_step: Finish step control
+        """
+        # 初始化返回结果
+        json_result: Dict[str, Any] = {'success': True}
+        try:
+            # 检查是否存在数据源
+            if not self.ds:
+                raise SQLBotDBConnectionError('No datasource selected')
+
+            # 验证SQL
+            self.validate_sql(self.chat_question.sql)
+
+            # 检查数据库连接
+            connected = check_connection(ds=self.ds, trans=None)
+            if not connected:
+                raise SQLBotDBConnectionError('Connect DB failed')
+
+            # return id
+            if in_chat:
+                yield 'data:' + orjson.dumps({'type': 'id', 'id': self.get_record().id}).decode() + '\n\n'
+            if not stream:
+                json_result['record_id'] = self.get_record().id
+
+            # 直接使用前端传入的SQL
+            sql = self.chat_question.sql
+            if not sql:
+                raise SingleMessageError('SQL is empty')
+
+            # 记录SQL日志
+            SQLBotLogUtil.info('Direct execute sql: ' + sql)
+
+            if not stream:
+                json_result['sql'] = sql
+
+            # 格式化SQL
+            format_sql = sqlparse.format(sql, reindent=True)
+            if in_chat:
+                yield 'data:' + orjson.dumps({'content': format_sql, 'type': 'sql'}).decode() + '\n\n'
+            else:
+                if stream:
+                    yield f'```sql\n{format_sql}\n```\n\n'
+
+            # execute sql
+            result = self.execute_sql(sql=sql)
+            self.save_sql_data(data_obj=result)
+            if in_chat:
+                yield 'data:' + orjson.dumps({'content': 'execute-success', 'type': 'sql-data'}).decode() + '\n\n'
+            if not stream:
+                json_result['data'] = result.get('data')
+
+            if finish_step.value <= ChatFinishStep.QUERY_DATA.value:
+                if stream:
+                    if in_chat:
+                        yield 'data:' + orjson.dumps({'type': 'finish'}).decode() + '\n\n'
+                    else:
+                        data = []
+                        _fields_list = []
+                        _fields_skip = False
+                        for _data in result.get('data'):
+                            _row = []
+                            for field in result.get('fields'):
+                                _row.append(_data.get(field))
+                                if not _fields_skip:
+                                    _fields_list.append(field)
+                            data.append(_row)
+                            _fields_skip = True
+
+                        if not data or not _fields_list:
+                            yield 'The SQL execution result is empty.\n\n'
+                        else:
+                            df = pd.DataFrame(np.array(data), columns=_fields_list)
+                            markdown_table = df.to_markdown(index=False)
+                            yield markdown_table + '\n\n'
+                else:
+                    yield json_result
+                return
+
+            # 生成基础图表
+            chart = {
+                'type': 'table',
+                'columns': [{'name': field, 'value': field} for field in result.get('fields', [])]
+            }
+
+            save_chart(session=self.session, chart=orjson.dumps(chart).decode(), record_id=self.record.id)
+
+            if not stream:
+                json_result['chart'] = chart
+
+            if in_chat:
+                yield 'data:' + orjson.dumps(
+                    {'content': orjson.dumps(chart).decode(), 'type': 'chart'}).decode() + '\n\n'
+            else:
+                if stream:
+                    data = []
+                    _fields_list = []
+                    _fields_skip = False
+                    for _data in result.get('data'):
+                        _row = []
+                        for field in result.get('fields'):
+                            _row.append(_data.get(field))
+                            if not _fields_skip:
+                                _fields_list.append(field)
+                        data.append(_row)
+                        _fields_skip = True
+
+                    if not data or not _fields_list:
+                        yield 'The SQL execution result is empty.\n\n'
+                    else:
+                        df = pd.DataFrame(np.array(data), columns=_fields_list)
+                        markdown_table = df.to_markdown(index=False)
+                        yield markdown_table + '\n\n'
+
+            if in_chat:
+                yield 'data:' + orjson.dumps({'type': 'finish'}).decode() + '\n\n'
+            else:
+                yield json_result
+
+        except Exception as e:
+            traceback.print_exc()
+            error_msg: str
+            if isinstance(e, SingleMessageError):
+                error_msg = str(e)
+            elif isinstance(e, SQLBotDBConnectionError):
+                error_msg = orjson.dumps(
+                    {'message': str(e), 'type': 'db-connection-err'}).decode()
+            elif isinstance(e, SQLBotDBError):
+                error_msg = orjson.dumps(
+                    {'message': 'Execute SQL Failed', 'traceback': str(e), 'type': 'exec-sql-err'}).decode()
+            else:
+                error_msg = orjson.dumps({'message': str(e), 'traceback': traceback.format_exc(limit=1)}).decode()
+            self.save_error(message=error_msg)
+            if in_chat:
+                yield 'data:' + orjson.dumps({'content': error_msg, 'type': 'error'}).decode() + '\n\n'
+            else:
+                if stream:
+                    yield f'> &#x274c; **ERROR**\n\n> \n\n> {error_msg}。'
+                else:
+                    json_result['success'] = False
+                    json_result['message'] = error_msg
+                    yield json_result
+        finally:
+            self.finish()
+
     def run_recommend_questions_task_async(self):
         self.future = executor.submit(self.run_recommend_questions_task_cache)
 

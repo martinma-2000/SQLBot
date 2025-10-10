@@ -12,6 +12,8 @@ export const questionApi = {
   // add: (data: any) => request.post('/chat/question', data),
   add: (data: any, controller?: AbortController) =>
     request.fetchStream('/chat/question', data, controller),
+  executeSQL: (data: any, controller?: AbortController) =>
+    request.fetchStream('/chat/execute-sql', data, controller),
   edit: (data: any) => request.put('/chat/question', data),
   delete: (id: number) => request.delete(`/chat/question/${id}`),
   query: (id: number) => request.get(`/chat/question/${id}`),
