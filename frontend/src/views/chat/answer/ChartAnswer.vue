@@ -81,32 +81,47 @@ const _loading = computed({
 const stopFlag = ref(false)
 
 const sendMessage = async () => {
+  /* -------- 初始化状态 -------- */
+  // 设置一个标志位，用于控制是否停止接收数据
   stopFlag.value = false
+  // 开始加载，显示加载状态
   _loading.value = true
 
+  /* -------- 检查索引有效性 -------- */
+  // 如果索引小于0，加载状态取消，标识没有有效的记录可以处理
   if (index.value < 0) {
     _loading.value = false
     return
   }
 
+  /* -------- 获取当前记录 -------- */
   const currentRecord: ChatRecord = _currentChat.value.records[index.value]
 
+  /* -------- 错误检查 -------- */
   let error: boolean = false
   if (_currentChatId.value === undefined) {
     error = true
   }
   if (error) return
 
+  /* -------- 发送请求并处理响应 -------- */
   try {
+    // 创建一个控制器，以便可以中止请求
     const controller: AbortController = new AbortController()
+    // 构造请求参数
     const param = {
       question: currentRecord.question,
       chat_id: _currentChatId.value,
     }
+    // 发送请求并获取响应
     const response = await questionApi.add(param, controller)
+    // 从响应体中获取数据读取器
     const reader = response.body.getReader()
+    // 创建一个文本解码器
     const decoder = new TextDecoder('utf-8')
 
+    /* -------- 处理流式响应 -------- */
+    // 初始化变量
     let sql_answer = ''
     let chart_answer = ''
 
@@ -124,8 +139,10 @@ const sendMessage = async () => {
         break
       }
 
+      // 解码数据块
       let chunk = decoder.decode(value, { stream: true })
       tempResult += chunk
+      // 匹配以 data: 开头的 JSON 字符串
       const split = tempResult.match(/data:.*}\n\n/g)
       if (split) {
         chunk = split.join('')
@@ -133,6 +150,7 @@ const sendMessage = async () => {
       } else {
         continue
       }
+
       if (chunk && chunk.startsWith('data:{')) {
         if (split) {
           for (const str of split) {
@@ -201,6 +219,7 @@ const sendMessage = async () => {
       }
     }
   } catch (error) {
+    /* -------- 错误处理 -------- */
     if (!currentRecord.error) {
       currentRecord.error = ''
     }
