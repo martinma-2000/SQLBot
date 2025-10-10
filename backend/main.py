@@ -103,4 +103,4 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run("main:app", host="0.0.0.0", port=8010)
-    # uvicorn.run("main:mcp_app", host="0.0.0.0", port=8001) # mcp server
+    uvicorn.run("main:mcp_app", host="0.0.0.0", port=8001) # mcp server

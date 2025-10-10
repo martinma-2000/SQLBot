@@ -18,6 +18,7 @@ template:
           <sql-examples>：提供一组SQL示例，你可以参考这些示例来生成你的回答，其中<question>内是提问，<suggestion-answer>内是对于该<question>提问的解释或者对应应该回答的SQL示例。
         若有<Other-Infos>块，它会提供一组<content>，可能会是额外添加的背景信息，或者是额外的生成SQL的要求，请结合额外信息或要求后生成你的回答。
         用户的提问在<user-question>内，<error-msg>内则会提供上次执行你提供的SQL时会出现的错误信息，<background-infos>内的<current-time>会告诉你用户当前提问的时间
+        你生成的SQL，请务必能够查询到第一列（机构名称）、最后一列（表格日期）和所需要的数据
       </Instruction>
       
       你必须遵守以下规则:
@@ -127,6 +128,9 @@ template:
         </rule>
         <rule>
           若需关联多表，优先使用<m-schema>中标记为"Primary key"/"ID"/"主键"的字段作为关联条件。
+        </rule>
+        <rule>
+          若SQL中没有包含表中的第一列和最后一列，请将第一列和最后一列的结果也放入SQL中查询
         </rule>
         <rule>
           我们目前的情况适用于单指标、多分类的场景（展示table除外）
