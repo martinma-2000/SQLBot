@@ -933,19 +933,27 @@ class LLMService:
 
     def run_task(self, in_chat: bool = True, stream: bool = True,
                  finish_step: ChatFinishStep = ChatFinishStep.GENERATE_CHART):
+        # 初始化返回结果
         json_result: Dict[str, Any] = {'success': True}
         try:
+            # 检查是否存在数据源
             if self.ds:
+                # 获取数据源的OID和ID
                 oid = self.ds.oid if isinstance(self.ds, CoreDatasource) else 1
                 ds_id = self.ds.id if isinstance(self.ds, CoreDatasource) else None
+                # 获取术语模板
                 self.chat_question.terminologies = get_terminology_template(self.session, self.chat_question.question,
                                                                             oid, ds_id)
+                # 获取训练模板
                 self.chat_question.data_training = get_training_template(self.session, self.chat_question.question,
                                                                          ds_id, oid)
+                # 检查SQLBot许可证是否有效
                 if SQLBotLicenseUtil.valid():
+                    # 获取自定义提示
                     self.chat_question.custom_prompt = find_custom_prompts(self.session, CustomPromptTypeEnum.GENERATE_SQL,
                                                                        oid, ds_id)
 
+            # 初始化消息
             self.init_messages()
 
             # return id
@@ -966,6 +974,7 @@ class LLMService:
                         json_result['title'] = brief
 
                 # select datasource if datasource is none
+            # 如果数据源为空，选择数据源
             if not self.ds:
                 ds_res = self.select_datasource()
 
@@ -980,20 +989,24 @@ class LLMService:
                                                   'engine_type': self.ds.type_name or self.ds.type,
                                                   'type': 'datasource'}).decode() + '\n\n'
 
+                # 获取数据库模式
                 self.chat_question.db_schema = self.out_ds_instance.get_db_schema(
                     self.ds.id) if self.out_ds_instance else get_table_schema(session=self.session,
                                                                               current_user=self.current_user,
                                                                               ds=self.ds,
                                                                               question=self.chat_question.question)
             else:
+                # 验证历史数据源
                 self.validate_history_ds()
 
             # check connection
+            # 检查数据库连接
             connected = check_connection(ds=self.ds, trans=None)
             if not connected:
                 raise SQLBotDBConnectionError('Connect DB failed')
 
             # generate sql
+            # 生成SQL
             sql_res = self.generate_sql()
             full_sql_text = ''
             for chunk in sql_res:
@@ -1005,10 +1018,13 @@ class LLMService:
             if in_chat:
                 yield 'data:' + orjson.dumps({'type': 'info', 'msg': 'sql generated'}).decode() + '\n\n'
             # filter sql
+            # 记录SQL日志
             SQLBotLogUtil.info(full_sql_text)
 
+            # 获取图表类型
             chart_type = self.get_chart_type_from_sql_answer(full_sql_text)
 
+            # 判断是否使用动态数据源或页面嵌入
             use_dynamic_ds: bool = self.current_assistant and self.current_assistant.type in dynamic_ds_types
             is_page_embedded: bool = self.current_assistant and self.current_assistant.type == 4
             dynamic_sql_result = None
@@ -1038,11 +1054,13 @@ class LLMService:
             else:
                 sql = self.check_save_sql(res=full_sql_text)
 
+            # 记录SQL日志
             SQLBotLogUtil.info('sql: ' + sql)
 
             if not stream:
                 json_result['sql'] = sql
 
+            # 格式化SQL
             format_sql = sqlparse.format(sql, reindent=True)
             if in_chat:
                 yield 'data:' + orjson.dumps({'content': format_sql, 'type': 'sql'}).decode() + '\n\n'
