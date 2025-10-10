@@ -186,6 +186,7 @@
     "select_datasource": "데이터 소스 선택",
     "view_more": "더 보기",
     "selected_datasource": "선택된 데이터 소스",
+    "execute_sql": "SQL 실행",
     "empty_datasource": "데이터 소스가 비어있습니다. 새로 생성한 후 스마트 데이터 조회를 시작하십시오!",
     "datasource_not_exist": "데이터 소스가 존재하지 않습니다",
     "guess_u_ask": "추천 질문:",

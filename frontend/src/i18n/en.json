@@ -186,6 +186,7 @@
     "select_datasource": "Select Data Source",
     "view_more": "View More",
     "selected_datasource": "Selected Data Source",
+    "execute_sql": "Execute SQL",
     "empty_datasource": "No data sources available. Please create one before starting Data Q&A!",
     "datasource_not_exist": "Data source does not exist",
     "guess_u_ask": "You might want to ask:",

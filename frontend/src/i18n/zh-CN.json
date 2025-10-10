@@ -186,6 +186,7 @@
     "select_datasource": "选择数据源",
     "view_more": "查看更多",
     "selected_datasource": "已选择数据源",
+    "execute_sql": "执行SQL",
     "empty_datasource": "数据源为空，请新建后再开启智能问数！",
     "datasource_not_exist": "数据源不存在",
     "guess_u_ask": "猜你想问:",
