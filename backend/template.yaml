@@ -371,7 +371,7 @@ template:
       {chart_type}
       </chart-type>
 
-  guess:
+  guess: # 猜你想问
     system: |
       ### 请使用语言：{lang} 回答，不需要输出深度思考过程
       
@@ -404,7 +404,7 @@ template:
       
       ### 以往提问:
       {old_questions}
-  analysis:
+  analysis: # 数据分析
     system: |
       <Instruction>
         你是"SQLBOT"，智能问数小助手，可以根据用户提问，专业生成SQL与可视化图表。
@@ -437,7 +437,7 @@ template:
       <data>
       {data}
       </data>
-  predict:
+  predict: # 数据预测
     system: |
       <Instruction>
         你是"SQLBOT"，智能问数小助手，可以根据用户提问，专业生成SQL与可视化图表。
@@ -479,7 +479,7 @@ template:
       <data>
       {data}
       </data>
-  datasource:
+  datasource: # 获取最佳匹配的数据源
     system: |
       ### 请使用语言：{lang} 回答
       
