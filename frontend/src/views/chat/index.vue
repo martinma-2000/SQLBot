@@ -27,10 +27,12 @@
     />
   </el-popover>
   <el-container class="chat-container no-padding">
+    <!-- 左侧边栏 -->
     <el-aside
       v-if="(isCompletePage || pageEmbedded) && chatListSideBarShow"
       class="chat-container-left"
     >
+      <!-- 聊天列表 -->
       <ChatListContainer
         v-model:chat-list="chatList"
         v-model:current-chat-id="currentChatId"
@@ -116,7 +118,10 @@
         </el-button>
       </el-tooltip>
     </div>
+
+    <!-- 右边主区域 -->
     <el-container :loading="loading">
+      <!-- 主内容区域 -->
       <el-main
         class="chat-record-list"
         :class="{
@@ -124,6 +129,7 @@
           'assistant-chat-main': !isCompletePage && !pageEmbedded,
         }"
       >
+        <!-- 欢迎页面  -->
         <div v-if="computedMessages.length == 0 && !loading" class="welcome-content-block">
           <div class="welcome-content">
             <template v-if="isCompletePage">
@@ -202,7 +208,10 @@
                   @loadingOver="loadingOver"
                 />
                 <UserChat v-if="message.role === 'user'" :message="message" />
+
+                <!-- 助手消息特殊处理 -->
                 <template v-if="message.role === 'assistant' && !message.first_chat">
+                  <!-- SQL执行结果 -->
                   <ChartAnswer
                     v-if="
                       (message?.record?.analysis_record_id === undefined ||
@@ -223,6 +232,7 @@
                     @stop="onChatStop"
                   >
                     <ErrorInfo :error="message.record?.error" class="error-container" />
+                    <!-- ChartAnswer 组件的 tool 插槽 -->
                     <template #tool>
                       <ChatToolBar v-if="!message.isTyping" :message="message">
                         <div class="tool-btns">
@@ -232,6 +242,7 @@
                             :content="t('qa.ask_again')"
                             placement="top"
                           >
+                            <!-- 重新生成 -->
                             <el-button
                               class="tool-btn"
                               text
@@ -245,6 +256,7 @@
                           </el-tooltip>
                           <template v-if="message.record?.chart">
                             <div class="divider"></div>
+                            <!-- 数据分析 -->
                             <div>
                               <el-button
                                 class="tool-btn"
@@ -262,6 +274,7 @@
                                 </span>
                               </el-button>
                             </div>
+                            <!-- 数据预测 -->
                             <div>
                               <el-button
                                 class="tool-btn"
@@ -283,6 +296,7 @@
                         </div>
                       </ChatToolBar>
                     </template>
+                    <!-- ChartAnswer 组件的 footer 插槽 -->
                     <template #footer>
                       <RecommendQuestion
                         ref="recommendQuestionRef"
@@ -297,6 +311,7 @@
                       />
                     </template>
                   </ChartAnswer>
+                  <!-- 数据分析结果 -->
                   <AnalysisAnswer
                     v-if="
                       message?.record?.analysis_record_id !== undefined &&
@@ -317,6 +332,7 @@
                       <ChatToolBar v-if="!message.isTyping" :message="message" />
                     </template>
                   </AnalysisAnswer>
+                  <!-- 数据预测结果 -->
                   <PredictAnswer
                     v-if="
                       message?.record?.predict_record_id !== undefined &&
@@ -344,8 +360,11 @@
           </div>
         </el-scrollbar>
       </el-main>
+
+      <!-- 底部输入区 -->
       <el-footer v-if="computedMessages.length > 0 || !isCompletePage" class="chat-footer">
         <div class="input-wrapper" @click="clickInput">
+          <!-- 数据源西安市 -->
           <div v-if="isCompletePage" class="datasource">
             <template v-if="currentChat.datasource && currentChat.datasource_name">
               {{ t('qa.selected_datasource') }}:
@@ -362,6 +381,7 @@
               </span>
             </template>
           </div>
+          <!-- 输入框 -->
           <el-input
             ref="inputRef"
             v-model="inputMessage"
@@ -375,7 +395,6 @@
             @keydown.enter.exact.prevent="($event: any) => sendMessage($event)"
             @keydown.ctrl.enter.exact.prevent="handleCtrlEnter"
           />
-
           <el-button
             circle
             type="primary"
@@ -724,20 +743,32 @@ const assistantPrepareSend = async () => {
   }
 }
 const sendMessage = async ($event: any = {}) => {
+  // ----------- 输入验证与基础处理
+  // 避免用户未完成输入时误触发发送
   if ($event?.isComposing) {
     return
   }
+  // 避免发送空消息
   if (!inputMessage.value.trim()) return
 
+  // ----------- 状态与界面更新
+  /* 加载状态 */
   loading.value = true
   isTyping.value = true
+  /* 滚动定位 */
+  // 如果当前是完整页面，且存在聊天内容容器引用
   if (isCompletePage.value && innerRef.value) {
+    // 记录当前容器高度
     scrollTopVal = innerRef.value!.clientHeight
+    // 并定时300毫秒滚动到底部，确保最新消息始终可见
     scrollTime = setInterval(() => {
       scrollBottom()
     }, 300)
   }
+  /* ------------- 消息准备与记录 ------------- */
+  /* 预处理发送 */
   await assistantPrepareSend()
+  /* 创建消息记录 */
   const currentRecord = new ChatRecord()
   currentRecord.create_time = new Date()
   currentRecord.chat_id = currentChatId.value
@@ -747,16 +778,21 @@ const sendMessage = async ($event: any = {}) => {
   currentRecord.chart_answer = ''
   currentRecord.chart = ''
 
+  // 将新建的聊天记录添加到当前聊天的记录数组中，并清空输入框
   currentChat.value.records.push(currentRecord)
   inputMessage.value = ''
 
+  /* ------------- DOM更新后的后续处理 ------------- */
   nextTick(async () => {
+    /* 滚动定位 */
     if (!isCompletePage.value && innerRef.value) {
       scrollTopVal = innerRef.value!.clientHeight
       scrollTime = setInterval(() => {
         scrollBottom()
       }, 300)
     }
+
+    // 获取最新消息索引
     const index = currentChat.value.records.length - 1
     if (chartAnswerRef.value) {
       if (chartAnswerRef.value instanceof Array) {
@@ -1151,7 +1187,6 @@ onMounted(() => {
         position: absolute;
         bottom: 12px;
         right: 12px;
-
         border-color: unset;
 
         &.is-disabled {
