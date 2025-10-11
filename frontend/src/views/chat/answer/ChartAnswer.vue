@@ -253,7 +253,19 @@ const validateSQL = (sql: string) => {
   if (limitIndex !== -1) {
     const limitPart = sql.slice(limitIndex + 5).trim()
     try {
-      const limitValue = parseInt(limitPart.split(/\s+/)[0])
+      // 使用正则表达式匹配数字部分（处理各种情况）
+      const numberMatch = limitPart.match(/^(\d+)/)
+      if (!numberMatch) {
+        throw new Error('Invalid LIMIT clause: no number found')
+      }
+
+      // 提取数字并验证
+      const limitValue = parseInt(numberMatch[0], 10)
+      if (isNaN(limitValue)) {
+        throw new Error('Invalid LIMIT clause: not a valid number')
+      }
+
+      // 检查是否超过最大值
       if (limitValue > 1000) {
         throw new Error('Maximum allowed LIMIT is 1000')
       }

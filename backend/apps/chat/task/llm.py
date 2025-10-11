@@ -1,6 +1,7 @@
 import concurrent
 import json
 import os
+import re
 import traceback
 import urllib.parse
 import warnings
@@ -1422,13 +1423,18 @@ class LLMService:
         # Parse LIMIT value
         limit_index = sql_lower.find('limit')
         if limit_index != -1:
-            limit_part = sql[limit_index + 5:].strip()
-            try:
-                limit_value = int(limit_part.split()[0])
+            # 使用正则匹配LIMIT后的数字（忽略大小写，允许任意非数字字符后）
+            limit_part = re.search(r'limit\s*(\d+)', sql_lower, flags=re.IGNORECASE)
+            if limit_part:
+                limit_value = int(limit_part.group(1))
+                if limit_value <= 0:
+                    raise SingleMessageError('LIMIT value must be a positive integer')
                 if limit_value > 1000:
                     raise SingleMessageError('Maximum allowed LIMIT is 1000')
-            except (ValueError, IndexError):
-                raise SingleMessageError('Invalid LIMIT clause')
+            else:
+                raise SingleMessageError('Invalid LIMIT clause: unable to extract numeric value')
+        else:
+            raise SingleMessageError('Invalid LIMIT clause: unable to find LIMIT keyword')
 
     def run_recommend_questions_task_async(self):
         self.future = executor.submit(self.run_recommend_questions_task_cache)
