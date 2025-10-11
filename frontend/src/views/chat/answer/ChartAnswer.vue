@@ -285,9 +285,13 @@ const executeSQL = async () => {
 
   /* -------- 验证SQL -------- */
   try {
-    validateSQL(currentRecord.sql)
-  } catch (error) {
-    currentRecord.error = error.message
+    if (currentRecord.sql) {
+      validateSQL(currentRecord.sql)
+    }
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      currentRecord.error = error.message
+    }
     _loading.value = false
     emits('error')
     return
