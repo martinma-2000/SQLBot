@@ -1411,10 +1411,39 @@ class LLMService:
             SingleMessageError: If SQL is invalid
         """
         # Check for DDL statements
-        ddl_keywords = ['create', 'drop', 'alter', 'truncate', 'rename', 'grant', 'revoke']
+        ddl_keywords = [
+            # DDL 操作
+            'create', 'drop', 'alter', 'truncate', 'comment on',
+            'vacuum', 'cluster', 'reindex',
+
+            # DML 操作
+            'insert', 'update', 'delete', 'merge',
+
+            # DCL 操作
+            'grant', 'revoke', 'create role', 'drop role', 'alter role',
+
+            # 文件操作
+            'copy from', 'copy to', '\\copy', 'lo_import', 'lo_export',
+
+            # 系统函数
+            'pg_read_file', 'pg_ls_dir', 'pg_stat_file',
+            'system(', 'dblink_', 'pg_sleep',
+
+            # 事务和锁
+            'begin', 'commit', 'rollback', 'savepoint', 'lock table',
+
+            # 扩展
+            'create extension', 'drop extension',
+
+            # 系统表
+            'pg_catalog.', 'information_schema.',
+
+            # 其他
+            'set ', 'reset ', 'explain', 'analyze'
+        ]
         sql_lower = sql.lower()
         if any(keyword in sql_lower for keyword in ddl_keywords):
-            raise SingleMessageError('DDL statements are not allowed')
+            raise SingleMessageError('Dangerous keywords are not allowed')
 
         # Check for LIMIT clause
         if 'limit' not in sql_lower:
