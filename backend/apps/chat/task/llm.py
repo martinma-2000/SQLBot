@@ -1,6 +1,7 @@
 import concurrent
 import json
 import os
+import re
 import traceback
 import urllib.parse
 import warnings
@@ -557,6 +558,20 @@ class LLMService:
             raise _error
 
     def generate_sql(self):
+        """
+        生成SQL查询语句的方法
+        
+        该方法通过与LLM交互，基于当前的对话历史和用户问题生成SQL查询语例。
+        它会记录整个交互过程，包括思考过程和最终的SQL结果，并将AI的回答保存到数据库中。
+        
+        Yields:
+            dict: 包含生成内容的字典，可能包括:
+                - 'content': AI生成的SQL相关内容
+                - 'reasoning_content': AI的推理思考过程
+                
+        Returns:
+            Generator[dict, None, None]: 返回一个生成器，产生包含内容和推理过程的字典
+        """
         # append current question
         self.sql_message.append(HumanMessage(
             self.chat_question.sql_user_question(current_time=datetime.now().strftime('%Y-%m-%d %H:%M:%S'))))
@@ -790,6 +805,14 @@ class LLMService:
             return None
 
         return chart_type
+
+    def save_user_sql(self):
+        _sql = self.chat_question.sql
+        if _sql:
+            save_sql(session=self.session, sql=self.chat_question.sql, record_id=self.record.id)
+            return _sql
+        else:
+            raise SingleMessageError("SQL query is empty")
 
     def check_save_sql(self, res: str) -> str:
         sql, *_ = self.check_sql(res=res)
@@ -1228,36 +1251,6 @@ class LLMService:
         for chunk in self.execute_direct_sql_task(in_chat, stream, finish_step):
             self.chunk_list.append(chunk)
 
-    def validate_sql(self, sql: str):
-        """Validate SQL before execution
-
-        Args:
-            sql: SQL to validate
-
-        Raises:
-            SingleMessageError: If SQL is invalid
-        """
-        # Check for DDL statements
-        ddl_keywords = ['create', 'drop', 'alter', 'truncate', 'rename', 'grant', 'revoke']
-        sql_lower = sql.lower()
-        if any(keyword in sql_lower for keyword in ddl_keywords):
-            raise SingleMessageError('DDL statements are not allowed')
-
-        # Check for LIMIT clause
-        if 'limit' not in sql_lower:
-            raise SingleMessageError('SQL must include LIMIT clause with maximum 1000 rows')
-
-        # Parse LIMIT value
-        limit_index = sql_lower.find('limit')
-        if limit_index != -1:
-            limit_part = sql[limit_index + 5:].strip()
-            try:
-                limit_value = int(limit_part.split()[0])
-                if limit_value > 1000:
-                    raise SingleMessageError('Maximum allowed LIMIT is 1000')
-            except (ValueError, IndexError):
-                raise SingleMessageError('Invalid LIMIT clause')
-
     def execute_direct_sql_task(self, in_chat: bool = True, stream: bool = True,
                                finish_step: ChatFinishStep = ChatFinishStep.GENERATE_CHART):
         """Execute SQL directly without generating SQL via LLM
@@ -1289,7 +1282,7 @@ class LLMService:
                 json_result['record_id'] = self.get_record().id
 
             # 直接使用前端传入的SQL
-            sql = self.chat_question.sql
+            sql = self.save_user_sql()
             if not sql:
                 raise SingleMessageError('SQL is empty')
 
@@ -1407,6 +1400,41 @@ class LLMService:
                     yield json_result
         finally:
             self.finish()
+
+    def validate_sql(self, sql: str):
+        """Validate SQL before execution
+
+        Args:
+            sql: SQL to validate
+
+        Raises:
+            SingleMessageError: If SQL is invalid
+        """
+        # Check for DDL statements
+        ddl_keywords = ['create', 'drop', 'alter', 'truncate', 'rename', 'grant', 'revoke']
+        sql_lower = sql.lower()
+        if any(keyword in sql_lower for keyword in ddl_keywords):
+            raise SingleMessageError('DDL statements are not allowed')
+
+        # Check for LIMIT clause
+        if 'limit' not in sql_lower:
+            raise SingleMessageError('SQL must include LIMIT clause with maximum 1000 rows')
+
+        # Parse LIMIT value
+        limit_index = sql_lower.find('limit')
+        if limit_index != -1:
+            # 使用正则匹配LIMIT后的数字（忽略大小写，允许任意非数字字符后）
+            limit_part = re.search(r'limit\s*(\d+)', sql_lower, flags=re.IGNORECASE)
+            if limit_part:
+                limit_value = int(limit_part.group(1))
+                if limit_value <= 0:
+                    raise SingleMessageError('LIMIT value must be a positive integer')
+                if limit_value > 1000:
+                    raise SingleMessageError('Maximum allowed LIMIT is 1000')
+            else:
+                raise SingleMessageError('Invalid LIMIT clause: unable to extract numeric value')
+        else:
+            raise SingleMessageError('Invalid LIMIT clause: unable to find LIMIT keyword')
 
     def run_recommend_questions_task_async(self):
         self.future = executor.submit(self.run_recommend_questions_task_cache)
