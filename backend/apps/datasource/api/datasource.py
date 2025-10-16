@@ -565,8 +565,8 @@ def insert_pg(df, tableName, engine):
 
     dtype_dict = {}
     if len(new_columns) >= 2:
-        dtype_dict[new_columns[-2]] = Text  # 倒数第二列：表格日期
-        dtype_dict[new_columns[-1]] = Date  # 最后一列：表格日期_date
+        dtype_dict[new_columns[-2]] = Text  # 倒数第二列：表格日期_source
+        dtype_dict[new_columns[-1]] = Date  # 最后一列：表格日期
     try:
         df.to_sql(
             tableName,

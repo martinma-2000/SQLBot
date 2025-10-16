@@ -13,7 +13,7 @@ template:
         我们会在<Info>块内提供给你信息，帮助你生成SQL：
           <Info>内有<db-engine><m-schema><terminologies>等信息；
           其中，<db-engine>：提供数据库引擎及版本信息；
-          <m-schema>：以 M-Schema 格式提供数据库表结构信息；
+          <m-schema>：以 M-Schema 格式提供数据库表结构信息（其中的列名可能是简短的占位符，例如"A"、"B"等，原始列名说明放在列的comment中）；
           <terminologies>：提供一组术语，块内每一个<terminology>就是术语，其中同一个<words>内的多个<word>代表术语的多种叫法，也就是术语与它的同义词，<description>即该术语对应的描述，其中也可能是能够用来参考的计算公式，或者是一些其他的查询条件；
           <sql-examples>：提供一组SQL示例，你可以参考这些示例来生成你的回答，其中<question>内是提问，<suggestion-answer>内是对于该<question>提问的解释或者对应应该回答的SQL示例。
         若有<Other-Infos>块，它会提供一组<content>，可能会是额外添加的背景信息，或者是额外的生成SQL的要求，请结合额外信息或要求后生成你的回答。
@@ -73,6 +73,14 @@ template:
         </rule>
         <rule>
           生成SQL时，必须避免与数据库关键字冲突
+        </rule>
+        <rule> 【重要】如果<m-schema>中的列名是占位符（如"A","B"），且在comment中提供了原始列名（可能包含日期、中文或空格），当用户提到comment中的内容时，请将其精确映射到对应的列占位符并在SQL中引用该占位符，不要当作时间过滤条件处理。
+        </rule>
+        <rule>
+        【重要】仅在用户提到的时间信息未与comment中的任何列名精确匹配时，才将时间解析为WHERE条件。
+        </rule>
+        <rule>
+        在引用含中文或特殊字符的原始列名时，应始终通过占位符列名来写SQL，不直接用原始列名。
         </rule>
         <rule>
           如数据库引擎是 PostgreSQL、Oracle、ClickHouse、达梦（DM）、AWS Redshift、Elasticsearch，则在schema、表名、字段名、别名外层加双引号；
@@ -264,7 +272,7 @@ template:
       <user-question>
       {question}
       </user-question>
-      
+  
   chart:
     system: |
       <Instruction>
@@ -296,7 +304,7 @@ template:
         </rule>
         <rule>
           如果需要表格，JSON格式应为：
-          {{"type":"table", "title": "标题", "columns": [{{"name":"{lang}字段名1", "value": "SQL 查询列 1(有别名用别名,去掉外层的反引号、双引号、方括号)"}}, {{"name": "{lang}字段名 2", "value": "SQL 查询列 2(有别名用别名,去掉外层的反引号、双引号、方括号)"}}]}}
+          {{"type":"table", "title": "标题", "columns": [{{"name":"SQL查询列1的comment(列名长度超过30字符时,缩写comment不超过30字符)", "value": "SQL 查询列 1(有别名用别名,去掉外层的反引号、双引号、方括号)"}}, {{"name": "SQL查询列2的comment(列名长度超过30字符时,缩写comment不超过30字符)", "value": "SQL 查询列 2(有别名用别名,去掉外层的反引号、双引号、方括号)"}}]}}
           必须从 SQL 查询列中提取“columns”
         </rule>
         <rule>
@@ -332,7 +340,7 @@ template:
           如果你无法根据提供的内容生成合适的JSON配置，则返回：{{"type":"error", "reason": "抱歉，我无法生成合适的图表配置"}}
           可以的话，你可以稍微丰富一下错误信息，让用户知道可能的原因。例如："reason": "无法生成配置：提供的SQL查询结果中没有找到适合作为分类(series)的字段。"
         </rule>
-        
+      
       <Rules>
       
       ### 以下<example>帮助你理解问题及返回格式的例子，不要将<example>内的表结构用来回答用户的问题
@@ -474,7 +482,7 @@ template:
       
       ### 响应, 请根据上述要求直接返回JSON结果:
       ```json
-      
+    
     user: |
       <fields>
       {fields}
