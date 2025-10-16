@@ -343,7 +343,19 @@
     "separator_placeholder": "请输入分隔符，默认为下划线",
     "time_column": "时间列",
     "time_column_placeholder": "请输入时间列索引，默认为0",
-    "primary_key_col": "主键列（索引）"
+    "primary_key_col": "主键列（索引）",
+    "vertical_merge_tip": "针对同一报表不同时间的文件进行合并处理",
+    "horizontal_merge_tip": "针对不同报表同一时间维度、机构维度的文件进行合并处理",
+    "file_requirements": "文件要求",
+    "vertical_requirement1": "列名字段保持一致",
+    "vertical_requirement2": "列字段必须包含'机构名称'",
+    "vertical_requirement3": "机构名称里的行值必须保持一致",
+    "vertical_requirement4": "暂时只支持月表合并",
+    "horizontal_requirement1": "可针对不同报表的同一月份数据进行合并",
+    "horizontal_requirement2": "时间周期需要保持一致",
+    "horizontal_requirement3": "列字段必须包含'机构名称'",
+    "horizontal_requirement4": "机构名称里的行值必须保持一致",
+    "horizontal_requirement5": "必需要下面有两行：空行+签字确认那一行"
   },
   "model": {
     "default_model": "默认模型",

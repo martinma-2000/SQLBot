@@ -343,7 +343,19 @@
     "separator_placeholder": "Please enter separator, default is underscore",
     "time_column": "Time Column",
     "time_column_placeholder": "Please enter time column index, default is 0",
-    "primary_key_col": "Primary Key Column (Index)"
+    "primary_key_col": "Primary Key Column (Index)",
+    "vertical_merge_tip": "Merge files for the same report across different time periods",
+    "horizontal_merge_tip": "Merge different reports for the same time period and organization",
+    "file_requirements": "File Requirements",
+    "vertical_requirement1": "Column names must be consistent",
+    "vertical_requirement2": "Must contain 'Organization Name' column",
+    "vertical_requirement3": "Organization names must be consistent",
+    "vertical_requirement4": "Only monthly reports are supported",
+    "horizontal_requirement1": "Only supports merging data for the same month",
+    "horizontal_requirement2": "Time period must be consistent",
+    "horizontal_requirement3": "Must contain 'Organization Name' column",
+    "horizontal_requirement4": "Organization names must be consistent",
+    "horizontal_requirement5": "Must have two blank rows at bottom (for signature)"
   },
   "model": {
     "default_model": "Default model",
