@@ -208,7 +208,7 @@ class ExcelHeaderProcessor:
         excel_name, _time = self.get_name_time(file_path)
         if len(df) > 2:
             df = df.iloc[:-2]  # 删除最后两行
-        df['表格日期'] = self.parse_chinese_date(_time)
+        df['表格日期_source'] = self.parse_chinese_date(_time)
 
         def standardize_date_format(date_period):
             """将 Period 对象转换为标准日期格式"""
@@ -220,9 +220,9 @@ class ExcelHeaderProcessor:
             except:
                 return None
 
-        df['表格日期_date'] = df['表格日期'].apply(standardize_date_format)
+        df['表格日期'] = df['表格日期_source'].apply(standardize_date_format)
         # 查看具体的值
-        print(repr(df['表格日期_date'].iloc[0]))
+        print(repr(df['表格日期'].iloc[0]))
         return df
 
     def parse_chinese_date(self, date_str):
