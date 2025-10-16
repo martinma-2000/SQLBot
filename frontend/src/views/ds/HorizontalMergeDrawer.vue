@@ -149,6 +149,16 @@ defineExpose({ open })
             <div class="el-upload__text">{{ $t('merge.drop_or_click') }}</div>
             <template #tip>
               <div class="ed-upload__tip">{{ $t('ds.form.upload.tip') }}</div>
+              <div class="merge-requirements">
+                <h4>{{ $t('merge.file_requirements') }}</h4>
+                <ul>
+                  <li>{{ $t('merge.horizontal_requirement1') }}</li>
+                  <li>{{ $t('merge.horizontal_requirement2') }}</li>
+                  <li>{{ $t('merge.horizontal_requirement3') }}</li>
+                  <li>{{ $t('merge.horizontal_requirement4') }}</li>
+                  <li>{{ $t('merge.horizontal_requirement5') }}</li>
+                </ul>
+              </div>
             </template>
           </el-upload>
         </el-form-item>
@@ -167,6 +177,44 @@ defineExpose({ open })
   width: 800px;
   margin: 0 auto;
   padding: 16px 0 24px 0;
+
+  .merge-requirements {
+    margin-top: 16px;
+    padding: 16px;
+    background: #f5f7fa;
+    border: 1px solid #e4e7ed;
+    border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+
+    h4 {
+      margin: 0 0 12px 0;
+      font-size: 15px;
+      font-weight: 600;
+      color: #303133;
+    }
+
+    ul {
+      margin: 0;
+      padding-left: 20px;
+
+      li {
+        font-size: 14px;
+        line-height: 1.8;
+        color: #606266;
+        margin-bottom: 6px;
+        position: relative;
+
+        &:before {
+          content: "•";
+          color: var(--ed-color-primary);
+          font-weight: bold;
+          display: inline-block;
+          width: 1em;
+          margin-left: -1em;
+        }
+      }
+    }
+  }
 }
 </style>
 

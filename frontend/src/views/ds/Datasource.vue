@@ -276,12 +276,16 @@ useEmitt({
           </template>
           {{ $t('datasource.new_data_source') }}
         </el-button>
-        <el-button type="primary" plain @click="handleVerticalMerge">
-          {{ $t('merge.vertical_merge') }}
-        </el-button>
-        <el-button type="primary" plain @click="handleHorizontalMerge">
-          {{ $t('merge.horizontal_merge') }}
-        </el-button>
+        <el-tooltip effect="dark" :content="$t('merge.vertical_merge_tip')" placement="top">
+          <el-button type="primary" plain @click="handleVerticalMerge">
+            {{ $t('merge.vertical_merge') }}
+          </el-button>
+        </el-tooltip>
+        <el-tooltip effect="dark" :content="$t('merge.horizontal_merge_tip')" placement="top">
+          <el-button type="primary" plain @click="handleHorizontalMerge">
+            {{ $t('merge.horizontal_merge') }}
+          </el-button>
+        </el-tooltip>
       </div>
     </div>
     <EmptyBackground
