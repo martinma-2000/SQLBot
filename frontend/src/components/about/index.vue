@@ -1,5 +1,6 @@
 <script lang="ts" setup>
-import aboutBg from '@/assets/embedded/LOGO-about.png'
+// import aboutBg from '@/assets/embedded/LOGO-about.png'
+import aboutBg from '@/assets/LOGO-unfold.png'
 
 import { ref, reactive, onMounted } from 'vue'
 import type { F2CLicense } from './index.ts'
@@ -193,7 +194,7 @@ defineExpose({
         </el-upload>
       </div>
     </div>
-    <div class="name">2014-2025 版权所有 © 杭州飞致云信息科技有限公司</div>
+    <!-- <div class="name">2014-2025 版权所有 © 杭州飞致云信息科技有限公司</div>-->
   </el-dialog>
 </template>
 

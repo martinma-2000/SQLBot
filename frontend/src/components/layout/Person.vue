@@ -157,12 +157,14 @@ const logout = () => {
           </el-icon>
           <div class="datasource-name">{{ $t('about.title') }}</div>
         </div>
+        <!--
         <div v-if="appearanceStore.getShowDoc" class="popover-item" @click="openHelp">
           <el-icon size="16">
             <icon_maybe_outlined></icon_maybe_outlined>
           </el-icon>
           <div class="datasource-name">{{ $t('common.help') }}</div>
         </div>
+        -->
         <div style="height: 4px; width: 100%"></div>
         <div class="popover-item mr4" @click="logout">
           <el-icon size="16">

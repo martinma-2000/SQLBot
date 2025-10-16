@@ -5,8 +5,12 @@ import LOGOCustom from '@/assets/svg/LOGO-custom.svg'
 import custom_small from '@/assets/svg/logo-custom_small.svg'
 import Workspace from './Workspace.vue'
 import Person from './Person.vue'
-import LOGO from '@/assets/LOGO.svg'
-import LOGO_fold from '@/assets/LOGO-fold.svg'
+// import LOGO from '@/assets/LOGO.svg'
+// import LOGO_unfold from '@/assets/LOGO-unfold.png'
+import LOGO_XH_UNFOLD from '@/assets/logo-xh-unfold.svg'
+// import LOGO_fold from '@/assets/LOGO-fold.svg'
+// import LOGO_fold from '@/assets/LOGO-fold.png'
+import LOGO_XH_fold from '@/assets/logo-xh-fold.svg'
 import icon_moments_categories_outlined from '@/assets/svg/icon_moments-categories_outlined.svg'
 import icon_side_fold_outlined from '@/assets/svg/icon_side-fold_outlined.svg'
 import icon_side_expand_outlined from '@/assets/svg/icon_side-expand_outlined.svg'
@@ -66,11 +70,11 @@ const showSysmenu = computed(() => {
             :style="{ marginLeft: collapse ? '5px' : 0 }"
             :class="!collapse && 'collapse-icon'"
           ></custom_small>
-          <LOGO_fold
+          <LOGO_XH_fold
             v-else
             :style="{ marginLeft: collapse ? '5px' : 0 }"
             :class="!collapse && 'collapse-icon'"
-          ></LOGO_fold>
+          ></LOGO_XH_fold>
           <span v-if="!collapse">{{ $t('training.system_anagement') }}</span>
         </div>
       </template>
@@ -106,12 +110,12 @@ const showSysmenu = computed(() => {
           ></LOGOCustom>
         </template>
         <template v-else>
-          <LOGO_fold
+          <LOGO_XH_fold
             v-if="collapse"
             style="margin: 0 0 6px 5px; cursor: pointer"
             @click="toChatIndex"
-          ></LOGO_fold>
-          <LOGO v-else style="margin-bottom: 6px; cursor: pointer" @click="toChatIndex"></LOGO>
+          ></LOGO_XH_fold>
+          <LOGO_XH_UNFOLD v-else style="margin-bottom: 6px; cursor: pointer" @click="toChatIndex"></LOGO_XH_UNFOLD>
         </template>
       </template>
       <Workspace v-if="!showSysmenu" :collapse="collapse"></Workspace>
