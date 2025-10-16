@@ -15,6 +15,7 @@ from excel_processing.excel_extract import ExcelHeaderProcessor
 from excel_processing.merge_diff_time import concatenate_dataframes
 from excel_processing.merge_diff_column import merge_dataframes_horizontally
 
+from sqlalchemy.types import Date, Text
 
 from apps.db.db import get_schema
 from apps.db.engine import get_engine_conn
@@ -561,12 +562,18 @@ def insert_pg(df, tableName, engine):
 
     conn = engine.raw_connection()
     cursor = conn.cursor()
+
+    dtype_dict = {}
+    if len(new_columns) >= 2:
+        dtype_dict[new_columns[-2]] = Text  # 倒数第二列：表格日期
+        dtype_dict[new_columns[-1]] = Date  # 最后一列：表格日期_date
     try:
         df.to_sql(
             tableName,
             engine,
             if_exists='replace',
-            index=False
+            index=False,
+            dtype=dtype_dict
         )
 
         comment_queries = []

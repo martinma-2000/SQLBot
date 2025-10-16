@@ -209,7 +209,20 @@ class ExcelHeaderProcessor:
         if len(df) > 2:
             df = df.iloc[:-2]  # 删除最后两行
         df['表格日期'] = self.parse_chinese_date(_time)
-        
+
+        def standardize_date_format(date_period):
+            """将 Period 对象转换为标准日期格式"""
+            if pd.isna(date_period):
+                return None
+            try:
+                # 转换为 timestamp
+                return date_period.to_timestamp().date()
+            except:
+                return None
+
+        df['表格日期_date'] = df['表格日期'].apply(standardize_date_format)
+        # 查看具体的值
+        print(repr(df['表格日期_date'].iloc[0]))
         return df
 
     def parse_chinese_date(self, date_str):
