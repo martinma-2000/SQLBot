@@ -96,7 +96,7 @@ const sendMessage = async () => {
 
   try {
     const controller: AbortController = new AbortController()
-    const response = await chatApi.analysis(currentRecord.analysis_record_id, controller)
+    const response = await chatApi.analysis(currentRecord.analysis_record_id, currentRecord.question, controller)
     const reader = response.body.getReader()
     const decoder = new TextDecoder('utf-8')
 
