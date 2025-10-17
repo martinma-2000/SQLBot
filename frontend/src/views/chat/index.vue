@@ -895,8 +895,15 @@ async function clickAnalysis(id?: number) {
     return
   }
 
-  loading.value = true
-  isTyping.value = true
+  try {
+    const { value: prompt } = await ElMessageBox.prompt(t('请输入数据分析提示词'), t('提示'), {
+      confirmButtonText: t('common.confirm'),
+      cancelButtonText: t('common.cancel'),
+      inputPlaceholder: t('请输入您的数据分析要求')
+    })
+
+    loading.value = true
+    isTyping.value = true
 
   const currentRecord = new ChatRecord()
   currentRecord.create_time = new Date()
@@ -916,17 +923,23 @@ async function clickAnalysis(id?: number) {
         for (let i = 0; i < analysisAnswerRef.value.length; i++) {
           const _index = analysisAnswerRef.value[i].index()
           if (index === _index) {
-            await analysisAnswerRef.value[i].sendMessage()
+            await analysisAnswerRef.value[i].sendMessage(prompt)
             break
           }
         }
       } else {
-        await analysisAnswerRef.value.sendMessage()
+        await analysisAnswerRef.value.sendMessage(prompt)
       }
     }
   })
 
   return
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(t('common.operation_failed'))
+    }
+    return
+  }
 }
 
 const predictAnswerRef = ref()

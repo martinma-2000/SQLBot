@@ -1,3 +1,4 @@
+from typing import Optional
 import asyncio
 import io
 import traceback
@@ -200,7 +201,7 @@ async def execute_sql(session: SessionDep, current_user: CurrentUser, request: d
 
 @router.post("/record/{chat_record_id}/{action_type}")
 async def analysis_or_predict(session: SessionDep, current_user: CurrentUser, chat_record_id: int, action_type: str,
-                              current_assistant: CurrentAssistant):
+                              current_assistant: CurrentAssistant, prompt: Optional[str] = None):
     try:
         if action_type != 'analysis' and action_type != 'predict':
             raise Exception(f"Type {action_type} Not Found")
@@ -224,7 +225,11 @@ async def analysis_or_predict(session: SessionDep, current_user: CurrentUser, ch
             raise Exception(
                 f"Chat record with id {chat_record_id} has not generated chart, do not support to analyze it")
 
-        request_question = ChatQuestion(chat_id=record.chat_id, question=record.question)
+        # 如果有提示词，将其添加到问题中
+        question = record.question
+        if prompt:
+            question = f"{question} {prompt}"
+        request_question = ChatQuestion(chat_id=record.chat_id, question=question)
 
         llm_service = await LLMService.create(current_user, request_question, current_assistant)
         llm_service.run_analysis_or_predict_task_async(action_type, record)

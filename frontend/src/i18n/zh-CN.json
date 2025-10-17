@@ -658,7 +658,10 @@
     "error": "错误",
     "exec-sql-err": "执行SQL失败",
     "no_data": "暂无数据",
-    "show_error_detail": "查看具体信息"
+    "show_error_detail": "查看具体信息",
+    "input_prompt": "请输入提示词",
+    "prompt_placeholder": "输入提示词来引导分析/预测方向",
+    "prompt_title": "附加提示"
   },
   "about": {
     "title": "关于",

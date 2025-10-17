@@ -4,7 +4,6 @@ import Default_avatar_custom from '@/assets/img/Default-avatar.svg'
 import icon_admin_outlined from '@/assets/svg/icon_admin_outlined.svg'
 import icon_info_outlined_1 from '@/assets/svg/icon_info_outlined_1.svg'
 import { useAppearanceStoreWithOut } from '@/stores/appearance'
-import icon_maybe_outlined from '@/assets/svg/icon-maybe_outlined.svg'
 import icon_key_outlined from '@/assets/svg/icon-key_outlined.svg'
 import icon_translate_outlined from '@/assets/svg/icon_translate_outlined.svg'
 import icon_logout_outlined from '@/assets/svg/icon_logout_outlined.svg'
@@ -63,10 +62,6 @@ const changeLanguage = (lang: string) => {
   userApi.language(param).then(() => {
     window.location.reload()
   })
-}
-
-const openHelp = () => {
-  window.open(appearanceStore.getHelp || 'https://dataease.cn/sqlbot/', '_blank')
 }
 
 const openPwd = () => {

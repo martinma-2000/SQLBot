@@ -324,9 +324,9 @@ export const chatApi = {
   deleteChat: (id: number | undefined): Promise<string> => {
     return request.get(`/chat/delete/${id}`)
   },
-  analysis: (record_id: number | undefined, controller?: AbortController) => {
-    return request.fetchStream(`/chat/record/${record_id}/analysis`, {}, controller)
-  },
+  analysis: (record_id: number | undefined, prompt?: string, controller?: AbortController) => {
+    return request.fetchStream(`/chat/record/${record_id}/analysis`, { prompt }, controller)
+   },
   predict: (record_id: number | undefined, controller?: AbortController) => {
     return request.fetchStream(`/chat/record/${record_id}/predict`, {}, controller)
   },

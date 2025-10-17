@@ -23,6 +23,7 @@
     "@highlightjs/vue-plugin": "^2.1.0",
     "@npkg/tinymce-plugins": "^0.0.7",
     "@tinymce/tinymce-vue": "^5.1.0",
+    "build": "^0.1.4",
     "dayjs": "^1.11.13",
     "element-plus": "^2.10.1",
     "element-plus-secondary": "^1.0.0",
