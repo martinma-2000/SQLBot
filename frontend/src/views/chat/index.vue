@@ -908,7 +908,8 @@ async function clickAnalysis(id?: number) {
   const currentRecord = new ChatRecord()
   currentRecord.create_time = new Date()
   currentRecord.chat_id = baseRecord.chat_id
-  currentRecord.question = baseRecord.question
+  currentRecord.question = baseRecord.question + ' ' + prompt
+  currentRecord.prompt = prompt
   currentRecord.chart = baseRecord.chart
   currentRecord.data = baseRecord.data
   currentRecord.analysis_record_id = id

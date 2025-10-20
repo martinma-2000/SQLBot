@@ -442,6 +442,9 @@ template:
       </Info>
       {custom_prompt}
     user: |
+      <user-question>
+      {question}
+      </user-question>
       <fields>
       {fields}
       </fields>

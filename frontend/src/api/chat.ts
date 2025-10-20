@@ -36,6 +36,7 @@ export class ChatRecord {
   create_time?: Date | string
   finish_time?: Date | string
   question?: string
+  prompt?: string
   sql_answer?: string
   sql?: string
   data?: string | any
@@ -61,6 +62,7 @@ export class ChatRecord {
     create_time: Date | string,
     finish_time: Date | string | undefined,
     question: string,
+    prompt: string,
     sql_answer: string | undefined,
     sql: string | undefined,
     data: string | any | undefined,
@@ -85,6 +87,7 @@ export class ChatRecord {
     create_time?: Date | string,
     finish_time?: Date | string,
     question?: string,
+    prompt?: string,
     sql_answer?: string,
     sql?: string,
     data?: string | any,
@@ -108,6 +111,7 @@ export class ChatRecord {
     this.create_time = getDate(create_time)
     this.finish_time = getDate(finish_time)
     this.question = question
+    this.prompt = prompt
     this.sql_answer = sql_answer
     this.sql = sql
     this.data = data
@@ -238,6 +242,7 @@ const toChatRecord = (data?: any): ChatRecord | undefined => {
     data.create_time,
     data.finish_time,
     data.question,
+    data.prompt,
     data.sql_answer,
     data.sql,
     data.data,

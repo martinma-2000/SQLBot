@@ -9,6 +9,7 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, select
+from pydantic import BaseModel
 
 from apps.chat.curd.chat import list_chats, get_chat_with_records, create_chat, rename_chat, \
     delete_chat, get_chat_chart_data, get_chat_predict_data, get_chat_with_records_with_data, get_chat_record_by_id
@@ -199,9 +200,14 @@ async def execute_sql(session: SessionDep, current_user: CurrentUser, request: d
     return StreamingResponse(llm_service.await_result(), media_type="text/event-stream")
 
 
+from pydantic import BaseModel
+
+class AnalysisOrPredictRequest(BaseModel):
+    prompt: Optional[str] = None
+
 @router.post("/record/{chat_record_id}/{action_type}")
 async def analysis_or_predict(session: SessionDep, current_user: CurrentUser, chat_record_id: int, action_type: str,
-                              current_assistant: CurrentAssistant, prompt: Optional[str] = None):
+                              current_assistant: CurrentAssistant, request_body: AnalysisOrPredictRequest = None):
     try:
         if action_type != 'analysis' and action_type != 'predict':
             raise Exception(f"Type {action_type} Not Found")
@@ -226,9 +232,13 @@ async def analysis_or_predict(session: SessionDep, current_user: CurrentUser, ch
                 f"Chat record with id {chat_record_id} has not generated chart, do not support to analyze it")
 
         # 如果有提示词，将其添加到问题中
+        prompt = request_body.prompt if request_body else None
+        print(f"Prompt received: {prompt}")
+        print(f"Record question: {record.question}")
         question = record.question
         if prompt:
             question = f"{question} {prompt}"
+            print(f"Combined question: {question}")
         request_question = ChatQuestion(chat_id=record.chat_id, question=question)
 
         llm_service = await LLMService.create(current_user, request_question, current_assistant)

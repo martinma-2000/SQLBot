@@ -77,7 +77,7 @@ const _loading = computed({
 })
 
 const stopFlag = ref(false)
-const sendMessage = async () => {
+const sendMessage = async (prompt?: string) => {
   stopFlag.value = false
   _loading.value = true
 
@@ -94,9 +94,12 @@ const sendMessage = async () => {
   }
   if (error) return
 
+  // Use the passed prompt parameter, or fall back to currentRecord.prompt
+  const actualPrompt = prompt !== undefined ? prompt : currentRecord.prompt;
+
   try {
     const controller: AbortController = new AbortController()
-    const response = await chatApi.analysis(currentRecord.analysis_record_id, currentRecord.question, controller)
+    const response = await chatApi.analysis(currentRecord.analysis_record_id, actualPrompt, controller)
     const reader = response.body.getReader()
     const decoder = new TextDecoder('utf-8')
 

@@ -272,6 +272,7 @@ class LLMService:
             self.chat_question.custom_prompt = find_custom_prompts(self.session, CustomPromptTypeEnum.ANALYSIS,
                                                                self.current_user.oid, ds_id)
 
+        print(f"Analysis Question: {self.chat_question.question}")
         analysis_msg.append(SystemMessage(content=self.chat_question.analysis_sys_question()))
         analysis_msg.append(HumanMessage(content=self.chat_question.analysis_user_question()))
 

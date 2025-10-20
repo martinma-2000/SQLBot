@@ -203,7 +203,7 @@ class AiModelQuestion(BaseModel):
                                                         custom_prompt=self.custom_prompt)
 
     def analysis_user_question(self):
-        return get_analysis_template()['user'].format(fields=self.fields, data=self.data)
+        return get_analysis_template()['user'].format(question=self.question, fields=self.fields, data=self.data)
 
     def predict_sys_question(self):
         return get_predict_template()['system'].format(lang=self.lang, custom_prompt=self.custom_prompt)
