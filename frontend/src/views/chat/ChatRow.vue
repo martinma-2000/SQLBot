@@ -53,6 +53,7 @@ const appearanceStore = useAppearanceStoreWithOut()
 
     &.right-to-left {
       flex-direction: row-reverse;
+      justify-content: flex-start;
     }
 
     .row-full {

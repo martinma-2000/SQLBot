@@ -51,8 +51,8 @@
 
     <div
       v-if="(!isCompletePage && !pageEmbedded) || !chatListSideBarShow"
-      class="hidden-sidebar-btn"
-      :class="{ 'assistant-popover-sidebar': !isCompletePage && !pageEmbedded }"
+        class="hidden-sidebar-btn"
+        :class="{ 'assistant-popover-sidebar': !isCompletePage && !pageEmbedded }"
     >
       <el-popover
         :width="280"
@@ -382,19 +382,35 @@
             </template>
           </div>
           <!-- 输入框 -->
-          <el-input
-            ref="inputRef"
-            v-model="inputMessage"
-            :disabled="isTyping"
-            clearable
-            class="input-area"
-            :class="!isCompletePage && 'is-assistant'"
-            type="textarea"
-            :autosize="{ minRows: 1, maxRows: 8.583 }"
-            :placeholder="t('qa.question_placeholder')"
-            @keydown.enter.exact.prevent="($event: any) => sendMessage($event)"
-            @keydown.ctrl.enter.exact.prevent="handleCtrlEnter"
-          />
+          <div class="input-container">
+            <!-- 数据分析前缀显示 -->
+            <div v-if="isDataAnalysisMode" class="analysis-prefix">
+              <span class="prefix-text">数据分析</span>
+              <el-button 
+                type="text" 
+                size="small" 
+                class="remove-prefix-btn"
+                @click="clearDataAnalysisPrefix"
+              >
+                <el-icon size="14"><Close /></el-icon>
+              </el-button>
+            </div>
+            <div class="input-wrapper">
+              <el-input
+                ref="inputRef"
+                v-model="inputMessage"
+                :disabled="isTyping"
+                clearable
+                class="input-area"
+                :class="[!isCompletePage && 'is-assistant']"
+                type="textarea"
+                :autosize="{ minRows: 1, maxRows: 8.583 }"
+                :placeholder="isDataAnalysisMode ? '请输入您的数据分析要求' : t('qa.question_placeholder')"
+                @keydown.enter.exact.prevent="($event: any) => sendMessage($event)"
+                @keydown.ctrl.enter.exact.prevent="handleCtrlEnter"
+              />
+            </div>
+          </div>
           <el-button
             type="primary"
             class="execute-btn"
@@ -426,7 +442,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { Chat, chatApi, ChatInfo, type ChatMessage, ChatRecord } from '@/api/chat'
-import ChatRow from './ChatRow.vue'
 import ChartAnswer from './answer/ChartAnswer.vue'
 import AnalysisAnswer from './answer/AnalysisAnswer.vue'
 import PredictAnswer from './answer/PredictAnswer.vue'
@@ -449,6 +464,7 @@ import logo_fold from '@/assets/logo-xh-fold.svg'
 // import logo from '@/assets/LOGO.svg'
 import logo from '@/assets/logo-xh-unfold.svg'
 import icon_send_filled from '@/assets/svg/icon_send_filled.svg'
+import { Close } from '@element-plus/icons-vue'
 import { useAssistantStore } from '@/stores/assistant'
 import { onClickOutside } from '@vueuse/core'
 import { useUserStore } from '@/stores/user'
@@ -761,6 +777,13 @@ const sendMessage = async ($event: any = {}) => {
   // 避免发送空消息
   if (!inputMessage.value.trim()) return
 
+  // 检查是否是数据分析模式
+  if (isDataAnalysisMode.value && currentAnalysisRecordId.value) {
+    // 处理数据分析请求
+    await handleDataAnalysisRequest()
+    return
+  }
+
   // ----------- 状态与界面更新
   /* 加载状态 */
   loading.value = true
@@ -889,21 +912,27 @@ function askAgain(message: ChatMessage) {
   })
 }
 
-async function clickAnalysis(id?: number) {
-  const baseRecord = find(currentChat.value.records, (value) => id === value.id)
-  if (baseRecord == undefined) {
+// 添加数据分析相关的状态
+const isDataAnalysisMode = ref(false)
+const currentAnalysisRecordId = ref<number | undefined>()
+
+// 新增处理数据分析请求的函数
+async function handleDataAnalysisRequest() {
+  const prompt = inputMessage.value.trim()
+  
+  if (!prompt) {
+    ElMessage.warning('请输入数据分析要求')
     return
   }
 
-  try {
-    const { value: prompt } = await ElMessageBox.prompt(t('请输入数据分析提示词'), t('提示'), {
-      confirmButtonText: t('common.confirm'),
-      cancelButtonText: t('common.cancel'),
-      inputPlaceholder: t('请输入您的数据分析要求')
-    })
+  const baseRecord = find(currentChat.value.records, (value) => currentAnalysisRecordId.value === value.id)
+  if (!baseRecord) {
+    ElMessage.error('找不到对应的记录')
+    return
+  }
 
-    loading.value = true
-    isTyping.value = true
+  loading.value = true
+  isTyping.value = true
 
   const currentRecord = new ChatRecord()
   currentRecord.create_time = new Date()
@@ -912,10 +941,15 @@ async function clickAnalysis(id?: number) {
   currentRecord.prompt = prompt
   currentRecord.chart = baseRecord.chart
   currentRecord.data = baseRecord.data
-  currentRecord.analysis_record_id = id
+  currentRecord.analysis_record_id = currentAnalysisRecordId.value
   currentRecord.analysis = ''
 
   currentChat.value.records.push(currentRecord)
+
+  // 清空输入框并退出数据分析模式
+  inputMessage.value = ''
+  isDataAnalysisMode.value = false
+  currentAnalysisRecordId.value = undefined
 
   nextTick(async () => {
     const index = currentChat.value.records.length - 1
@@ -933,14 +967,32 @@ async function clickAnalysis(id?: number) {
       }
     }
   })
+}
 
-  return
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error(t('common.operation_failed'))
-    }
+// 添加清除数据分析前缀的函数
+function clearDataAnalysisPrefix() {
+  // 清空输入框并退出数据分析模式
+  inputMessage.value = ''
+  isDataAnalysisMode.value = false
+  currentAnalysisRecordId.value = undefined
+}
+
+// 移除监听输入框变化的watch，因为不再使用文本前缀
+
+async function clickAnalysis(id?: number) {
+  const baseRecord = find(currentChat.value.records, (value) => id === value.id)
+  if (baseRecord == undefined) {
     return
   }
+
+  // 切换到数据分析模式，不再在输入框添加文本前缀
+  isDataAnalysisMode.value = true
+  currentAnalysisRecordId.value = id
+  
+  // 聚焦到输入框
+  nextTick(() => {
+    inputRef.value?.focus()
+  })
 }
 
 const predictAnswerRef = ref()
@@ -1175,7 +1227,7 @@ onMounted(() => {
     width: 100%;
     display: flex;
     flex-direction: column;
-    align-items: center;
+    align-items: stretch;
     padding-left: 56px;
     padding-right: 56px;
 
@@ -1423,6 +1475,95 @@ onMounted(() => {
       --ed-button-active-bg-color: var(--ed-color-primary-33, #1cba9033);
       --ed-button-active-border-color: var(--ed-color-primary, rgba(28, 186, 144, 1));
     }
+  }
+}
+
+/* 数据分析前缀样式 */
+.input-container {
+  position: relative;
+  width: 100%;
+}
+
+.analysis-prefix {
+  position: absolute;
+  top: 8px;
+  right: 80px;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  background: rgba(28, 186, 144, 0.1);
+  border: 1px solid rgba(28, 186, 144, 0.3);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 12px;
+  color: rgba(28, 186, 144, 1);
+  
+  .prefix-text {
+    margin-right: 4px;
+    font-weight: 500;
+  }
+  
+  .remove-prefix-btn {
+    padding: 0;
+    margin: 0;
+    min-height: auto;
+    height: 16px;
+    width: 16px;
+    color: rgba(28, 186, 144, 0.8);
+    
+    &:hover {
+      color: rgba(28, 186, 144, 1);
+      background: rgba(28, 186, 144, 0.1);
+    }
+  }
+}
+
+.input-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.input-prefix-tag {
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  background: rgba(28, 186, 144, 0.1);
+  border: 1px solid rgba(28, 186, 144, 0.3);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 12px;
+  color: rgba(28, 186, 144, 1);
+  pointer-events: auto;
+  
+  .input-prefix-text {
+    margin-right: 4px;
+    font-weight: 500;
+    user-select: none;
+  }
+  
+  .input-prefix-remove-btn {
+    padding: 0;
+    margin: 0;
+    min-height: auto;
+    height: 14px;
+    width: 14px;
+    color: rgba(28, 186, 144, 0.8);
+    
+    &:hover {
+      color: rgba(28, 186, 144, 1);
+      background: rgba(28, 186, 144, 0.1);
+    }
+  }
+}
+
+.input-area.has-prefix {
+  .ed-textarea__inner {
+    padding-top: 32px !important;
+    padding-right: 160px !important;
+    padding-left: 90px !important;
   }
 }
 </style>
