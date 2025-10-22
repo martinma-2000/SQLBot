@@ -215,8 +215,16 @@ class ExcelHeaderProcessor:
             if pd.isna(date_period):
                 return None
             try:
-                # 转换为 timestamp
-                return date_period.to_timestamp().date()
+                # 根据 Period 的频率返回不同的格式
+                if date_period.freq.name in ['M', 'ME']:
+                    # 月度数据，返回该月的最后一天，格式为 YYYY-MM-DD
+                    return date_period.to_timestamp(how='end').date()
+                elif date_period.freq.name in ['D', 'DE']:
+                    # 每日数据，返回 YYYY-MM-DD 格式
+                    return date_period.to_timestamp().date()
+                else:
+                    # 其他频率，转换为 timestamp
+                    return date_period.to_timestamp().date()
             except:
                 return None
 
