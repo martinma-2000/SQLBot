@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Search } from '@element-plus/icons-vue'
 import ChatList from '@/views/chat/ChatList.vue'
+import TableStructureView from '@/views/chat/TableStructureView.vue'
 import { useI18n } from 'vue-i18n'
 import { computed, nextTick, ref } from 'vue'
 import { Chat, chatApi, ChatInfo } from '@/api/chat.ts'
@@ -9,6 +10,8 @@ import ChatCreator from '@/views/chat/ChatCreator.vue'
 import { useAssistantStore } from '@/stores/assistant'
 import icon_sidebar_outlined from '@/assets/svg/icon_sidebar_outlined.svg'
 import icon_new_chat_outlined from '@/assets/svg/icon_new_chat_outlined.svg'
+import icon_chat_outlined from '@/assets/svg/icon_chat_outlined.svg'
+import icon_dataset_filled from '@/assets/svg/icon_dataset_filled.svg'
 import { useUserStore } from '@/stores/user'
 import router from '@/router'
 const userStore = useUserStore()
@@ -48,6 +51,12 @@ const assistantStore = useAssistantStore()
 const isCompletePage = computed(() => !assistantStore.getAssistant || assistantStore.getEmbedded)
 
 const search = ref<string>()
+const currentView = ref<'chat' | 'table'>('chat')
+
+// 视图切换函数
+function toggleView() {
+  currentView.value = currentView.value === 'chat' ? 'table' : 'chat'
+}
 
 const _currentChatId = computed({
   get() {
@@ -217,11 +226,25 @@ function onChatRenamed(chat: Chat) {
     <el-header class="chat-list-header" :class="{ 'in-popover': inPopover }">
       <div v-if="!inPopover" class="title">
         <div>{{ appName || t('qa.title') }}</div>
-        <el-button link type="primary" class="icon-btn" @click="onClickSideBarBtn">
-          <el-icon>
-            <icon_sidebar_outlined />
-          </el-icon>
-        </el-button>
+        <div class="header-actions">
+          <el-button 
+            link 
+            type="primary" 
+            class="icon-btn view-toggle-btn" 
+            @click="toggleView"
+            :title="currentView === 'chat' ? '切换到表结构视图' : '切换到历史记录视图'"
+          >
+            <el-icon>
+               <icon_dataset_filled v-if="currentView === 'chat'" />
+               <icon_chat_outlined v-else />
+             </el-icon>
+          </el-button>
+          <el-button link type="primary" class="icon-btn" @click="onClickSideBarBtn">
+            <el-icon>
+              <icon_sidebar_outlined />
+            </el-icon>
+          </el-button>
+        </div>
       </div>
       <el-button class="btn" type="primary" @click="createNewChat">
         <el-icon style="margin-right: 6px">
@@ -240,18 +263,26 @@ function onChatRenamed(chat: Chat) {
       />
     </el-header>
     <el-main class="chat-list">
-      <div v-if="!computedChatList.length" class="empty-search">
-        {{ !!search ? $t('datasource.relevant_content_found') : $t('dashboard.no_chat') }}
-      </div>
-      <ChatList
-        v-else
-        v-model:loading="_loading"
-        :current-chat-id="_currentChatId"
-        :chat-list="computedChatList"
-        @chat-selected="onClickHistory"
-        @chat-deleted="onChatDeleted"
-        @chat-renamed="onChatRenamed"
-      />
+      <!-- 历史记录视图 -->
+      <template v-if="currentView === 'chat'">
+        <div v-if="!computedChatList.length" class="empty-search">
+          {{ !!search ? $t('datasource.relevant_content_found') : $t('dashboard.no_chat') }}
+        </div>
+        <ChatList
+          v-else
+          v-model:loading="_loading"
+          :current-chat-id="_currentChatId"
+          :chat-list="computedChatList"
+          @chat-selected="onClickHistory"
+          @chat-deleted="onChatDeleted"
+          @chat-renamed="onChatRenamed"
+        />
+      </template>
+      
+      <!-- 表结构视图 -->
+      <template v-else>
+        <TableStructureView :current-datasource-id="_currentChat?.datasource" />
+      </template>
     </el-main>
 
     <ChatCreator v-if="isCompletePage" ref="chatCreatorRef" @on-chat-created="onChatCreated" />
@@ -297,6 +328,41 @@ function onChatRenamed(chat: Chat) {
       align-items: center;
       justify-content: space-between;
       font-weight: 500;
+      
+      .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        
+        .icon-btn.view-toggle-btn {
+          --ed-button-text-color: #333 !important;
+          --ed-button-hover-text-color: #333 !important;
+          --ed-button-active-text-color: #333 !important;
+          --ed-button-hover-link-text-color: #333 !important;
+          color: #333 !important;
+          
+          &:hover {
+            color: #333 !important;
+          }
+          
+          &.active {
+            color: #333 !important;
+          }
+          
+          /* 针对 link 类型按钮的特殊处理 */
+          &.el-button--primary.is-link {
+            color: #333 !important;
+            
+            &:hover {
+              color: #333 !important;
+            }
+            
+            &:active {
+              color: #333 !important;
+            }
+          }
+        }
+      }
     }
 
     .btn {
