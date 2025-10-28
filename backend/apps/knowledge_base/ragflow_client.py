@@ -14,6 +14,9 @@ from apps.ai_model.model_factory import LLMFactory, get_default_config
 class RAGFlowClient:
     """RAGFlow API客户端"""
     
+    # 默认返回结果数量
+    DEFAULT_TOP_K = 1
+    
     def __init__(self, base_url: str, api_key: str):
         """
         初始化RAGFlow客户端
@@ -180,15 +183,15 @@ class RAGFlowClient:
             logger.error(f"Unexpected error when getting document chunks: {e}")
             return []
     
-    async def analyze_question_with_llm(self, question: str) -> str:
+    async def analyze_question_with_llm(self, question: str) -> Dict[str, Any]:
         """
-        使用大模型分析问题，优化查询语句
+        使用大模型分析问题，提取机构信息和指标名称
         
         Args:
             question: 原始问题
             
         Returns:
-            优化后的问题
+            包含机构信息和指标名称的字典
         """
         try:
             # 获取默认的大模型配置
@@ -200,34 +203,53 @@ class RAGFlowClient:
             
             # 构造提示词
             prompt = f"""
-            你是一个智能问题优化助手。请分析以下用户问题，并对其进行优化，使其更适合在知识库中进行检索。
-            请保持问题的核心语义不变，但可以：
-            1. 补充必要的背景信息
-            2. 重新组织语言结构
-            3. 添加可能相关的关键词
-            4. 消除歧义表达
-            
+            请从给定文本中识别并提取所有机构信息和相关指标名称，并以严格的JSON结构化形式输出。请务必遵守以下要求：
+
+            输出格式：
+            {{
+            "机构信息": ["机构1", "机构2", ...],
+            "指标名称": ["指标1", "指标2", ...]
+            }}
+
+            示例：
+            输入：今年陕西农信的信用卡发卡量有多少？
+            输出：
+            {{
+            "机构信息": ["陕西农信"],
+            "指标名称": ["信用卡发卡量"]
+            }}
+
+            注意事项：
+            1. 只提取文本中明确出现的机构名称和指标名称，不要推测或生成不存在的内容
+            2. 输出必须为合法的JSON格式，无多余文字、标点或解释说明
+            3. 不要输出除JSON结构外的任何文本或注释
+            4. 字段名称必须严格为：机构信息、指标名称
+
             原始问题: {question}
-            
-            请直接输出优化后的问题，不要添加任何其他说明:
             """
             
             # 调用大模型进行问题分析
             response = await llm.ainvoke(prompt)
             
-            # 提取优化后的问题
-            optimized_question = response.content.strip() if hasattr(response, 'content') else str(response).strip()
+            # 提取分析结果
+            analysis_result = response.content.strip() if hasattr(response, 'content') else str(response).strip()
             
-            logger.info(f"问题优化: '{question}' -> '{optimized_question}'")
-            
-            return optimized_question
+            # 尝试解析JSON
+            try:
+                parsed_result = json.loads(analysis_result)
+                logger.info(f"问题分析成功: '{question}' -> {parsed_result}")
+                return parsed_result
+            except json.JSONDecodeError:
+                logger.warning(f"大模型返回的不是有效JSON格式: {analysis_result}")
+                # 返回默认结构
+                return {"机构信息": [], "指标名称": []}
             
         except Exception as e:
             logger.error(f"大模型分析问题时出错: {e}")
-            # 如果大模型分析失败，返回原始问题
-            return question
+            # 如果大模型分析失败，返回空的分析结果
+            return {"机构信息": [], "指标名称": []}
     
-    async def search_knowledge_base(self, kb_id: str, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    async def search_knowledge_base(self, kb_id: str, query: str, top_k: int = DEFAULT_TOP_K) -> List[Dict[str, Any]]:
         """
         在知识库中搜索相关内容
         
@@ -240,14 +262,26 @@ class RAGFlowClient:
             搜索结果列表
         """
         try:
-            # 先使用大模型分析和优化问题
-            optimized_query = await self.analyze_question_with_llm(query)
+            # 先使用大模型分析问题
+            analysis_result = await self.analyze_question_with_llm(query)
+            
+            # 构建优化的查询语句
+            query_parts = []
+            if analysis_result.get("机构信息"):
+                query_parts.extend(analysis_result["机构信息"])
+            if analysis_result.get("指标名称"):
+                query_parts.extend(analysis_result["指标名称"])
+            
+            # 如果提取到了关键信息，使用提取的信息作为查询，否则使用原始查询
+            optimized_query = " ".join(query_parts) if query_parts else query
             
             payload = {
                 "question": optimized_query,
                 "dataset_ids": [kb_id],  # 根据API错误提示，使用 dataset_ids 而不是 datasets
                 "top_k": top_k
             }
+            
+            logger.info(f"Sending request to RAGFlow API with top_k={top_k}")
             
             async with httpx.AsyncClient() as client:
                 response = await client.post(
@@ -264,6 +298,12 @@ class RAGFlowClient:
                     # 提取chunks数据
                     result_data = data.get('data', {})
                     chunks = result_data.get('chunks', [])
+                    
+                    # 确保返回的分片数量不超过请求的top_k
+                    if len(chunks) > top_k:
+                        logger.info(f"RAGFlow returned {len(chunks)} chunks, truncating to top_k={top_k}")
+                        chunks = chunks[:top_k]
+                    
                     return chunks
                 else:
                     logger.error(f"RAGFlow API error: {data.get('message', 'Unknown error')}")
@@ -275,6 +315,189 @@ class RAGFlowClient:
         except Exception as e:
             logger.error(f"Unexpected error when searching knowledge base: {e}")
             return []
+    
+    def parse_to_json(self, contents: List[str]) -> List[Dict[str, Any]]:
+        """
+        将召回的内容列表解析为结构化的JSON格式，适配多种数据源类型（数据库表/API接口）
+        
+        Args:
+            contents: 召回的内容字符串列表
+            
+        Returns:
+            解析后的结构化数据列表，包含数据获取所需的元数据和提示信息
+        """
+        import re
+        from typing import List, Dict, Any
+        
+        result = []
+        
+        for content in contents:
+            if not isinstance(content, str) or not content.strip():
+                continue
+                
+            try:
+                # 提取指标编码 (idx_ecd/指标编号)
+                idx_ecd_match = re.search(r'idx_ecd[/指标编号]*[：:]\s*([A-Z0-9_]+)', content)
+                idx_ecd = idx_ecd_match.group(1).strip() if idx_ecd_match else ""
+                
+                # 提取指标名称
+                indicator_match = re.search(r'指标名称[：:]\s*([^;；]+)', content)
+                indicator_name = indicator_match.group(1).strip() if indicator_match else ""
+                
+                # 提取所有维度信息 - 匹配 dmns_cd1/维度1枚举值及含义:01：普卡，02：金卡... 的格式
+                dimension_pattern = r'dmns_cd(\d+)/维度\d+枚举值及含义[：:]\s*([^;；]+)'
+                dimension_matches = re.findall(dimension_pattern, content)
+                
+                dimensions = []
+                # 通用数据源元数据，适配数据库表和API接口
+                data_source_metadata = {
+                    # 数据库表相关信息
+                    "table_name": f"indicator_{idx_ecd.lower()}" if idx_ecd else "unknown_table",
+                    "primary_key": idx_ecd,
+                    "columns": [],
+                    
+                    # API接口相关信息
+                    "api_endpoint": f"/api/indicator/{idx_ecd}" if idx_ecd else "/api/indicator/unknown",
+                    "request_method": "GET",
+                    "query_parameters": [],
+                    "response_fields": [],
+                    
+                    # 通用字段映射
+                    "field_mappings": {},
+                    "data_source_type": "flexible"  # 可以是 "database", "api", 或 "flexible"
+                }
+                for dim_num, dim_content in dimension_matches:
+                    # 解析维度内的枚举值，格式如：01：普卡，02：金卡，03：白金卡，04：黑卡
+                    enum_pattern = r'(\d+)[：:]\s*([^，,]+)'
+                    enum_matches = re.findall(enum_pattern, dim_content)
+                    
+                    children = []
+                    for enum_id, enum_label in enum_matches:
+                        children.append({
+                            "parentId": f"{idx_ecd}_dim{dim_num}",
+                            "id": enum_id.strip(),
+                            "label": enum_label.strip()
+                        })
+                    
+                    # 创建维度节点
+                    dimension = {
+                        "parentId": idx_ecd,
+                        "id": f"{idx_ecd}_dim{dim_num}",
+                        "label": f"维度{dim_num}枚举值及含义",
+                        "field_name": f"dmns_cd{dim_num}",  # 通用字段名
+                        "data_type": "varchar",
+                        "enum_values": [enum_label.strip() for enum_id, enum_label in enum_matches],
+                        "children": children
+                    }
+                    dimensions.append(dimension)
+                    
+                    # 添加到数据源元数据 - 数据库列信息
+                    data_source_metadata["columns"].append({
+                        "name": f"dmns_cd{dim_num}",
+                        "type": "varchar",
+                        "description": f"维度{dim_num}",
+                        "enum_values": [enum_label.strip() for enum_id, enum_label in enum_matches]
+                    })
+                    
+                    # 添加到数据源元数据 - API参数信息
+                    data_source_metadata["query_parameters"].append({
+                        "name": f"dmns_cd{dim_num}",
+                        "type": "string",
+                        "description": f"维度{dim_num}筛选条件",
+                        "enum_values": [enum_label.strip() for enum_id, enum_label in enum_matches],
+                        "required": False
+                    })
+                    
+                    # 添加到响应字段
+                    data_source_metadata["response_fields"].append({
+                        "name": f"dmns_cd{dim_num}",
+                        "type": "string",
+                        "description": f"维度{dim_num}值",
+                        "enum_values": [enum_label.strip() for enum_id, enum_label in enum_matches]
+                    })
+                    
+                    # 添加字段映射
+                    data_source_metadata["field_mappings"][f"维度{dim_num}"] = f"dmns_cd{dim_num}"
+                
+                # 构建根节点结果对象
+                parsed_item = {
+                    "parentId": "null",
+                    "id": idx_ecd,
+                    "label": indicator_name,
+                    "indicator_code": idx_ecd,
+                    "indicator_name": indicator_name,
+                    "data_source_metadata": data_source_metadata,
+                    "children": dimensions,
+                    
+                    # 数据获取提示信息 - 支持多种数据源
+                    "data_access_hints": {
+                        # SQL查询提示（适用于数据库）
+                        "sql_query": {
+                            "select_template": f"SELECT * FROM {data_source_metadata['table_name']}",
+                            "where_template": " AND ".join([f"{col['name']} = ?" for col in data_source_metadata["columns"]]),
+                            "group_by_columns": [col["name"] for col in data_source_metadata["columns"]],
+                            "aggregation_column": "value"
+                        },
+                        
+                        # API调用提示（适用于接口）
+                        "api_request": {
+                            "endpoint": data_source_metadata["api_endpoint"],
+                            "method": data_source_metadata["request_method"],
+                            "query_params_template": {param["name"]: f"<{param['description']}>" for param in data_source_metadata["query_parameters"]},
+                            "response_structure": {field["name"]: field["type"] for field in data_source_metadata["response_fields"]}
+                        },
+                        
+                        # 通用数据获取提示
+                        "general_hints": {
+                            "data_description": f"获取{indicator_name}相关数据",
+                            "filter_fields": [col["name"] for col in data_source_metadata["columns"]],
+                            "available_values": {col["name"]: col["enum_values"] for col in data_source_metadata["columns"] if col.get("enum_values")},
+                            "field_mappings": data_source_metadata["field_mappings"]
+                        }
+                    }
+                }
+                
+                # 只有当至少有指标编码或指标名称时才添加到结果中
+                if idx_ecd or indicator_name:
+                    result.append(parsed_item)
+                    
+            except Exception as e:
+                logger.warning(f"解析内容时出错: {e}, 内容: {content[:100]}...")
+                continue
+        
+        return result
+    
+    async def search_and_parse_knowledge_base(self, kb_id: str, query: str, top_k: int = DEFAULT_TOP_K) -> List[Dict[str, Any]]:
+        """
+        在知识库中搜索相关内容并进行预处理
+        
+        Args:
+            kb_id: 知识库ID
+            query: 搜索查询
+            top_k: 返回结果数量
+            
+        Returns:
+            搜索并解析后的结构化数据列表
+        """
+        # 先获取原始召回数据
+        chunks = await self.search_knowledge_base(kb_id, query, top_k)
+        
+        if not chunks:
+            return []
+        
+        # 提取内容文本
+        contents = []
+        for chunk in chunks:
+            content = chunk.get('content', '')
+            if content:
+                contents.append(content)
+        
+        # 解析为结构化数据
+        parsed_data = self.parse_to_json(contents)
+        
+        logger.info(f"解析了 {len(contents)} 个召回片段，生成了 {len(parsed_data)} 个结构化数据项")
+        
+        return parsed_data
     
     async def get_knowledge_base_content(self, name: str) -> Dict[str, Any]:
         """
@@ -316,7 +539,7 @@ if __name__ == "__main__":
         def __init__(self, client):
             self.client = client
         
-        async def retrieve_relevant_chunks(self, question: str, kb_name: str = None, top_k: int = 5):
+        async def retrieve_relevant_chunks(self, question: str, kb_name: str = None, top_k: int = RAGFlowClient.DEFAULT_TOP_K):
             """
             从知识库中召回与问题最相关的分片
             
@@ -382,7 +605,7 @@ if __name__ == "__main__":
         # RAG配置
         base_url = sys.argv[1]
         api_key = sys.argv[2]
-        question = sys.argv[3] if len(sys.argv) > 3 else "今年4月理财产品销售额"
+        question = sys.argv[3] if len(sys.argv) > 3 else "今年陕西农信的信用卡发卡量有多少？"
         
         client = RAGFlowClient(base_url, api_key)
         
@@ -390,27 +613,66 @@ if __name__ == "__main__":
         print(f"Question: {question}\n")
         
         try:
-            # 创建召回器
-            retriever = KnowledgeRetriever(client)
+            # 获取知识库列表
+            kbs = await client.get_knowledge_bases()
+            if not kbs:
+                print("No knowledge bases found")
+                return
+            
+            # 使用第一个知识库或指定的知识库
+            target_kb = kbs[0]
+            kb_id = target_kb.get('id')
+            kb_name = target_kb.get('name')
+            print(f"Using knowledge base: {kb_name} (ID: {kb_id})")
+            
+            print("\n" + "="*60)
+            print("测试1: 原始召回数据")
+            print("="*60)
             
             # 召回相关分片
-            chunks = await retriever.retrieve_relevant_chunks(question)
+            chunks = await client.search_knowledge_base(kb_id, question, top_k=RAGFlowClient.DEFAULT_TOP_K)
+            print(f"召回了 {len(chunks)} 个分片")
             
-            # 格式化为LLM上下文
-            context = await retriever.format_chunks_for_llm(chunks)
-            print("Retrieved context for LLM:")
-            print("-" * 50)
-            print(context)
-            print("-" * 50)
-            
-            # 显示详细信息
-            print(f"\nRetrieved {len(chunks)} chunks:")
+            # 显示原始召回内容
             for i, chunk in enumerate(chunks, 1):
-                print(f"\n{i}. Similarity: {chunk.get('similarity', 'N/A')}")
-                print(f"   Content: {chunk.get('content', '')[:100]}...")
+                content = chunk.get('content', '')
+                similarity = chunk.get('vector_similarity', chunk.get('similarity', 'N/A'))
+                print(f"\n--- 分片 {i} (相似度: {similarity}) ---")
+                print(content)
+            
+            # 先使用大模型分析问题
+            analysis_result = await client.analyze_question_with_llm(question)
+            print(f"\n大模型解析结果: {json.dumps(analysis_result, ensure_ascii=False, indent=2)}")
+            
+            # 召回相关分片
+            chunks = await client.search_knowledge_base(kb_id, question, top_k=RAGFlowClient.DEFAULT_TOP_K)
+            
+            print(f"\n原始分片 ({len(chunks)} 个):")
+            print("-" * 50)
+            for i, chunk in enumerate(chunks, 1):
+                content = chunk.get('content', '')
+                similarity = chunk.get('vector_similarity', chunk.get('similarity', 'N/A'))
+                print(f"分片 {i} (相似度: {similarity}):")
+                print(content)
+                print("-" * 30)
+            
+            # 提取内容文本用于解析
+            contents = [chunk.get('content', '') for chunk in chunks if chunk.get('content')]
+            
+            # 使用parse_to_json进行预处理
+            parsed_data = client.parse_to_json(contents)
+            
+            print(f"\n预处理后的分片 ({len(parsed_data)} 个结构化数据项):")
+            print("-" * 50)
+            for i, item in enumerate(parsed_data, 1):
+                print(f"结构化数据 {i}:")
+                print(json.dumps(item, ensure_ascii=False, indent=2))
+                print("-" * 30)
                 
         except Exception as e:
             print(f"Error: {e}")
+            import traceback
+            traceback.print_exc()
     
     # 运行异步主函数
     asyncio.run(main())
