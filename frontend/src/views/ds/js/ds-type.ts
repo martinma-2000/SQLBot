@@ -9,6 +9,7 @@ import doris from '@/assets/datasource/icon_doris.png'
 import redshift from '@/assets/datasource/icon_redshift.png'
 import es from '@/assets/datasource/icon_es.png'
 import kingbase from '@/assets/datasource/icon_kingbase.png'
+import api from '@/assets/datasource/icon_API.png'
 import { i18n } from '@/i18n'
 
 const t = i18n.global.t
@@ -24,6 +25,7 @@ export const dsType = [
   { label: 'AWS Redshift', value: 'redshift' },
   { label: 'Elasticsearch', value: 'es' },
   { label: 'Kingbase', value: 'kingbase' },
+  { label: 'API接口', value: 'api' },
 ]
 
 export const dsTypeWithImg = [
@@ -38,6 +40,7 @@ export const dsTypeWithImg = [
   { name: 'AWS Redshift', type: 'redshift', img: redshift },
   { name: 'Elasticsearch', type: 'es', img: es },
   { name: 'Kingbase', type: 'kingbase', img: kingbase },
+  { name: 'API接口', type: 'api', img: api },
 ]
 
 export const haveSchema = ['sqlServer', 'pg', 'oracle', 'dm', 'redshift', 'kingbase']

@@ -94,6 +94,26 @@ const rules = reactive<FormRules>({
       trigger: 'blur',
     },
   ],
+  // API数据源验证规则
+  endpoint: [
+    {
+      required: true,
+      message: '请输入API端点URL',
+      trigger: 'blur',
+    },
+    {
+      type: 'url',
+      message: '请输入有效的URL地址',
+      trigger: 'blur',
+    },
+  ],
+  timeout: [
+    {
+      required: true,
+      message: '请输入超时时间',
+      trigger: 'blur',
+    },
+  ],
 })
 
 const dialogVisible = ref<boolean>(false)
@@ -114,6 +134,19 @@ const form = ref<any>({
   sheets: [],
   mode: 'service_name',
   timeout: 30,
+  // API数据源字段
+  endpoint: '',
+  method: 'POST',
+  requestBody: '',
+  successStatusCodes: '200,201',
+  headerKey: '',
+  headerValue: '',
+  cookieKey: '',
+  cookieValue: '',
+  paramKey: '',
+  paramValue: '',
+  certificate: '',
+  certificateList: [],
 })
 
 const close = () => {
@@ -142,17 +175,57 @@ const initForm = (item: any, editTable: boolean = false) => {
     form.value.configuration = item.configuration
     if (item.configuration) {
       const configuration = JSON.parse(decrypted(item.configuration))
-      form.value.host = configuration.host
-      form.value.port = configuration.port
-      form.value.username = configuration.username
-      form.value.password = configuration.password
-      form.value.database = configuration.database
-      form.value.extraJdbc = configuration.extraJdbc
-      form.value.dbSchema = configuration.dbSchema
-      form.value.filename = configuration.filename
-      form.value.sheets = configuration.sheets
-      form.value.mode = configuration.mode
-      form.value.timeout = configuration.timeout ? configuration.timeout : 30
+      
+      if (item.type === 'api') {
+        // 加载API数据源配置
+        form.value.endpoint = configuration.endpoint
+        form.value.method = configuration.method || 'POST'
+        form.value.requestBody = configuration.requestBody || ''
+        form.value.timeout = configuration.timeout ? configuration.timeout : 30
+        
+        // 加载成功状态码
+        if (configuration.successStatusCodes && Array.isArray(configuration.successStatusCodes)) {
+          form.value.successStatusCodes = configuration.successStatusCodes.join(',')
+        } else {
+          form.value.successStatusCodes = '200,201'
+        }
+        
+        // 加载认证信息
+        form.value.certificateList = configuration.certificateList || []
+        
+        if (item.certificate) {
+          try {
+            const certificateList = JSON.parse(item.certificate)
+            for (const cert of certificateList) {
+              if (cert.target === 'header') {
+                form.value.headerKey = cert.key
+                form.value.headerValue = cert.value
+              } else if (cert.target === 'cookie') {
+                form.value.cookieKey = cert.key
+                form.value.cookieValue = cert.value
+              } else if (cert.target === 'param') {
+                form.value.paramKey = cert.key
+                form.value.paramValue = cert.value
+              }
+            }
+          } catch (e) {
+            console.error('解析certificate失败', e)
+          }
+        }
+      } else {
+        // 加载传统数据库配置
+        form.value.host = configuration.host
+        form.value.port = configuration.port
+        form.value.username = configuration.username
+        form.value.password = configuration.password
+        form.value.database = configuration.database
+        form.value.extraJdbc = configuration.extraJdbc
+        form.value.dbSchema = configuration.dbSchema
+        form.value.filename = configuration.filename
+        form.value.sheets = configuration.sheets
+        form.value.mode = configuration.mode
+        form.value.timeout = configuration.timeout ? configuration.timeout : 30
+      }
     }
 
     if (editTable) {
@@ -288,35 +361,112 @@ const save = async (formEl: FormInstance | undefined) => {
 }
 
 const buildConf = () => {
-  form.value.configuration = encrypted(
-    JSON.stringify({
-      host: form.value.host,
-      port: form.value.port,
-      username: form.value.username,
-      password: form.value.password,
-      database: form.value.database,
-      extraJdbc: form.value.extraJdbc,
-      dbSchema: form.value.dbSchema,
-      filename: form.value.filename,
-      sheets: form.value.sheets,
-      mode: form.value.mode,
-      timeout: form.value.timeout,
-    })
-  )
-  const obj = JSON.parse(JSON.stringify(form.value))
-  delete obj.driver
-  delete obj.host
-  delete obj.port
-  delete obj.username
-  delete obj.password
-  delete obj.database
-  delete obj.extraJdbc
-  delete obj.dbSchema
-  delete obj.filename
-  delete obj.sheets
-  delete obj.mode
-  delete obj.timeout
-  return obj
+  if (form.value.type === 'api') {
+    // 处理API数据源配置
+    const certificateList = [];
+    
+    // 添加header认证
+    if (form.value.headerKey && form.value.headerValue) {
+      certificateList.push({
+        target: 'header',
+        key: form.value.headerKey,
+        value: form.value.headerValue
+      });
+    }
+    
+    // 添加cookie认证
+    if (form.value.cookieKey && form.value.cookieValue) {
+      certificateList.push({
+        target: 'cookie',
+        key: form.value.cookieKey,
+        value: form.value.cookieValue
+      });
+    }
+    
+    // 添加URL参数认证
+    if (form.value.paramKey && form.value.paramValue) {
+      certificateList.push({
+        target: 'param',
+        key: form.value.paramKey,
+        value: form.value.paramValue
+      });
+    }
+    
+    // 处理成功状态码
+    let successStatusCodes = [200, 201];
+    if (form.value.successStatusCodes) {
+      successStatusCodes = form.value.successStatusCodes.split(',').map((code: string) => parseInt(code.trim()));
+    }
+    
+    form.value.configuration = encrypted(
+      JSON.stringify({
+        endpoint: form.value.endpoint,
+        method: form.value.method || 'POST',
+        requestBody: form.value.requestBody || '',
+        successStatusCodes: successStatusCodes,
+        certificateList: certificateList,
+        timeout: form.value.timeout || 30
+      })
+    );
+    
+    form.value.certificate = JSON.stringify(certificateList);
+    
+    const obj = JSON.parse(JSON.stringify(form.value));
+    delete obj.endpoint;
+    delete obj.headerKey;
+    delete obj.headerValue;
+    delete obj.cookieKey;
+    delete obj.cookieValue;
+    delete obj.paramKey;
+    delete obj.paramValue;
+    delete obj.timeout;
+    
+    // 删除传统数据库字段
+    delete obj.driver;
+    delete obj.host;
+    delete obj.port;
+    delete obj.username;
+    delete obj.password;
+    delete obj.database;
+    delete obj.extraJdbc;
+    delete obj.dbSchema;
+    delete obj.filename;
+    delete obj.sheets;
+    delete obj.mode;
+    
+    return obj;
+  } else {
+    // 处理传统数据库配置
+    form.value.configuration = encrypted(
+      JSON.stringify({
+        host: form.value.host,
+        port: form.value.port,
+        username: form.value.username,
+        password: form.value.password,
+        database: form.value.database,
+        extraJdbc: form.value.extraJdbc,
+        dbSchema: form.value.dbSchema,
+        filename: form.value.filename,
+        sheets: form.value.sheets,
+        mode: form.value.mode,
+        timeout: form.value.timeout,
+      })
+    )
+    const obj = JSON.parse(JSON.stringify(form.value))
+    delete obj.driver
+    delete obj.host
+    delete obj.port
+    delete obj.username
+    delete obj.password
+    delete obj.database
+    delete obj.extraJdbc
+    delete obj.dbSchema
+    delete obj.filename
+    delete obj.sheets
+    delete obj.mode
+    delete obj.timeout
+    return obj
+  }
 }
 
 const check = () => {
@@ -359,6 +509,44 @@ const next = debounce(async (formEl: FormInstance | undefined) => {
         if (excelUploadSuccess.value) {
           emit('changeActiveStep', props.activeStep + 1)
         }
+      } else if (form.value.type === 'api') {
+        // API数据源直接保存，跳过表选择步骤
+        if (checkLoading.value) return
+        const requestObj = buildConf()
+        checkLoading.value = true
+        datasourceApi
+          .check(requestObj)
+          .then((res: boolean) => {
+            if (res) {
+              // API数据源连接成功后直接保存
+              saveLoading.value = true
+              // 为API数据源添加默认的api_data表
+              requestObj.tables = [{ table_name: 'api_data', table_comment: 'API数据表' }]
+              datasourceApi
+                .add(requestObj)
+                .then(() => {
+                  close()
+                  emit('refresh')
+                  ElMessage({
+                    message: 'API数据源配置成功',
+                    type: 'success',
+                    showClose: true,
+                  })
+                })
+                .finally(() => {
+                  saveLoading.value = false
+                })
+            } else {
+              ElMessage({
+                message: t('ds.form.connect.failed'),
+                type: 'error',
+                showClose: true,
+              })
+            }
+          })
+          .finally(() => {
+            checkLoading.value = false
+          })
       } else {
         if (checkLoading.value) return
         // check status if success do next
@@ -394,7 +582,9 @@ const preview = debounce(() => {
 }, 200)
 
 const beforeUpload = (rawFile: any) => {
-  setFile(rawFile)
+  if (typeof setFile === 'function') {
+    setFile(rawFile)
+  }
   if (rawFile.size / 1024 / 1024 > 50) {
     ElMessage.error(t('common.not_exceed_50mb'))
     return false
@@ -411,8 +601,9 @@ const onSuccess = (response: any) => {
   uploadLoading.value = false
 }
 
-const onError = () => {
+const onError = (error: any) => {
   uploadLoading.value = false
+  console.error('Upload error:', error)
 }
 
 onMounted(() => {
@@ -590,7 +781,113 @@ defineExpose({
             type="textarea"
           />
         </el-form-item>
-        <div v-if="form.type !== 'excel'" style="margin-top: 16px">
+        <div v-if="form.type === 'api'" style="margin-top: 16px">
+          <!-- API数据源表单 -->
+          <el-form-item label="API端点" prop="endpoint">
+            <el-input
+              v-model="form.endpoint"
+              clearable
+              placeholder="请输入API端点URL"
+            />
+          </el-form-item>
+          
+          <!-- HTTP方法选择 -->
+          <el-form-item label="HTTP方法" prop="method">
+            <el-select v-model="form.method" placeholder="请选择HTTP方法">
+              <el-option label="GET" value="GET" />
+              <el-option label="POST" value="POST" />
+              <el-option label="PUT" value="PUT" />
+              <el-option label="DELETE" value="DELETE" />
+            </el-select>
+          </el-form-item>
+          
+          <!-- 请求体 -->
+          <el-form-item label="请求体(JSON)" prop="requestBody">
+            <el-input
+              v-model="form.requestBody"
+              type="textarea"
+              :rows="5"
+              placeholder="请输入JSON格式的请求体，例如: { &quot;sql&quot;: &quot;SELECT * FROM table LIMIT 5&quot; }"
+            />
+          </el-form-item>
+          
+          <!-- 成功状态码 -->
+          <el-form-item label="成功状态码" prop="successStatusCodes">
+            <el-input
+              v-model="form.successStatusCodes"
+              placeholder="请输入成功状态码，多个状态码用逗号分隔，例如: 200,201,204"
+            />
+          </el-form-item>
+          
+          <!-- 超时设置 -->
+          <el-form-item label="超时时间(秒)" prop="timeout">
+            <el-input-number
+              v-model="form.timeout"
+              :min="1"
+              :max="300"
+              :step="1"
+              style="width: 100%"
+            />
+          </el-form-item>
+          
+          <!-- 认证信息 -->
+          <div style="margin-bottom: 16px;">
+            <div style="font-weight: 500; margin-bottom: 8px;">认证信息</div>
+            
+            <!-- Header认证 -->
+            <div style="margin-bottom: 16px; border: 1px solid #EBEEF5; border-radius: 4px; padding: 16px;">
+              <div style="font-weight: 500; margin-bottom: 8px;">Header认证</div>
+              <el-row :gutter="12">
+                <el-col :span="12">
+                  <el-form-item label="Key">
+                    <el-input v-model="form.headerKey" placeholder="请输入Header Key" />
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item label="Value">
+                    <el-input v-model="form.headerValue" placeholder="请输入Header Value" />
+                  </el-form-item>
+                </el-col>
+              </el-row>
+            </div>
+            
+            <!-- Cookie认证 -->
+            <div style="margin-bottom: 16px; border: 1px solid #EBEEF5; border-radius: 4px; padding: 16px;">
+              <div style="font-weight: 500; margin-bottom: 8px;">Cookie认证</div>
+              <el-row :gutter="12">
+                <el-col :span="12">
+                  <el-form-item label="Key">
+                    <el-input v-model="form.cookieKey" placeholder="请输入Cookie Key" />
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item label="Value">
+                    <el-input v-model="form.cookieValue" placeholder="请输入Cookie Value" />
+                  </el-form-item>
+                </el-col>
+              </el-row>
+            </div>
+            
+            <!-- URL参数认证 -->
+            <div style="border: 1px solid #EBEEF5; border-radius: 4px; padding: 16px;">
+              <div style="font-weight: 500; margin-bottom: 8px;">URL参数认证</div>
+              <el-row :gutter="12">
+                <el-col :span="12">
+                  <el-form-item label="Key">
+                    <el-input v-model="form.paramKey" placeholder="请输入URL参数 Key" />
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item label="Value">
+                    <el-input v-model="form.paramValue" placeholder="请输入URL参数 Value" />
+                  </el-form-item>
+                </el-col>
+              </el-row>
+            </div>
+          </div>
+        </div>
+        
+        <div v-if="form.type !== 'excel' && form.type !== 'api'" style="margin-top: 16px">
           <el-form-item
             :label="form.type !== 'es' ? t('ds.form.host') : t('ds.form.address')"
             prop="host"
