@@ -318,13 +318,13 @@ class RAGFlowClient:
     
     def parse_to_json(self, contents: List[str]) -> List[Dict[str, Any]]:
         """
-        将召回的内容列表解析为结构化的JSON格式，适配多种数据源类型（数据库表/API接口）
+        将召回的内容列表解析为结构化的JSON格式
         
         Args:
             contents: 召回的内容字符串列表
             
         Returns:
-            解析后的结构化数据列表，包含数据获取所需的元数据和提示信息
+            解析后的结构化数据列表
         """
         import re
         from typing import List, Dict, Any
@@ -349,23 +349,6 @@ class RAGFlowClient:
                 dimension_matches = re.findall(dimension_pattern, content)
                 
                 dimensions = []
-                # 通用数据源元数据，适配数据库表和API接口
-                data_source_metadata = {
-                    # 数据库表相关信息
-                    "table_name": f"indicator_{idx_ecd.lower()}" if idx_ecd else "unknown_table",
-                    "primary_key": idx_ecd,
-                    "columns": [],
-                    
-                    # API接口相关信息
-                    "api_endpoint": f"/api/indicator/{idx_ecd}" if idx_ecd else "/api/indicator/unknown",
-                    "request_method": "GET",
-                    "query_parameters": [],
-                    "response_fields": [],
-                    
-                    # 通用字段映射
-                    "field_mappings": {},
-                    "data_source_type": "flexible"  # 可以是 "database", "api", 或 "flexible"
-                }
                 for dim_num, dim_content in dimension_matches:
                     # 解析维度内的枚举值，格式如：01：普卡，02：金卡，03：白金卡，04：黑卡
                     enum_pattern = r'(\d+)[：:]\s*([^，,]+)'
@@ -384,77 +367,16 @@ class RAGFlowClient:
                         "parentId": idx_ecd,
                         "id": f"{idx_ecd}_dim{dim_num}",
                         "label": f"维度{dim_num}枚举值及含义",
-                        "field_name": f"dmns_cd{dim_num}",  # 通用字段名
-                        "data_type": "varchar",
-                        "enum_values": [enum_label.strip() for enum_id, enum_label in enum_matches],
                         "children": children
                     }
                     dimensions.append(dimension)
-                    
-                    # 添加到数据源元数据 - 数据库列信息
-                    data_source_metadata["columns"].append({
-                        "name": f"dmns_cd{dim_num}",
-                        "type": "varchar",
-                        "description": f"维度{dim_num}",
-                        "enum_values": [enum_label.strip() for enum_id, enum_label in enum_matches]
-                    })
-                    
-                    # 添加到数据源元数据 - API参数信息
-                    data_source_metadata["query_parameters"].append({
-                        "name": f"dmns_cd{dim_num}",
-                        "type": "string",
-                        "description": f"维度{dim_num}筛选条件",
-                        "enum_values": [enum_label.strip() for enum_id, enum_label in enum_matches],
-                        "required": False
-                    })
-                    
-                    # 添加到响应字段
-                    data_source_metadata["response_fields"].append({
-                        "name": f"dmns_cd{dim_num}",
-                        "type": "string",
-                        "description": f"维度{dim_num}值",
-                        "enum_values": [enum_label.strip() for enum_id, enum_label in enum_matches]
-                    })
-                    
-                    # 添加字段映射
-                    data_source_metadata["field_mappings"][f"维度{dim_num}"] = f"dmns_cd{dim_num}"
                 
                 # 构建根节点结果对象
                 parsed_item = {
                     "parentId": "null",
                     "id": idx_ecd,
                     "label": indicator_name,
-                    "indicator_code": idx_ecd,
-                    "indicator_name": indicator_name,
-                    "data_source_metadata": data_source_metadata,
-                    "children": dimensions,
-                    
-                    # 数据获取提示信息 - 支持多种数据源
-                    "data_access_hints": {
-                        # SQL查询提示（适用于数据库）
-                        "sql_query": {
-                            "select_template": f"SELECT * FROM {data_source_metadata['table_name']}",
-                            "where_template": " AND ".join([f"{col['name']} = ?" for col in data_source_metadata["columns"]]),
-                            "group_by_columns": [col["name"] for col in data_source_metadata["columns"]],
-                            "aggregation_column": "value"
-                        },
-                        
-                        # API调用提示（适用于接口）
-                        "api_request": {
-                            "endpoint": data_source_metadata["api_endpoint"],
-                            "method": data_source_metadata["request_method"],
-                            "query_params_template": {param["name"]: f"<{param['description']}>" for param in data_source_metadata["query_parameters"]},
-                            "response_structure": {field["name"]: field["type"] for field in data_source_metadata["response_fields"]}
-                        },
-                        
-                        # 通用数据获取提示
-                        "general_hints": {
-                            "data_description": f"获取{indicator_name}相关数据",
-                            "filter_fields": [col["name"] for col in data_source_metadata["columns"]],
-                            "available_values": {col["name"]: col["enum_values"] for col in data_source_metadata["columns"] if col.get("enum_values")},
-                            "field_mappings": data_source_metadata["field_mappings"]
-                        }
-                    }
+                    "children": dimensions
                 }
                 
                 # 只有当至少有指标编码或指标名称时才添加到结果中
@@ -629,6 +551,10 @@ if __name__ == "__main__":
             print("测试1: 原始召回数据")
             print("="*60)
             
+            # 先使用大模型分析问题
+            analysis_result = await client.analyze_question_with_llm(question)
+            print(f"\n大模型解析结果: {json.dumps(analysis_result, ensure_ascii=False, indent=2)}")
+            
             # 召回相关分片
             chunks = await client.search_knowledge_base(kb_id, question, top_k=RAGFlowClient.DEFAULT_TOP_K)
             print(f"召回了 {len(chunks)} 个分片")
@@ -640,34 +566,11 @@ if __name__ == "__main__":
                 print(f"\n--- 分片 {i} (相似度: {similarity}) ---")
                 print(content)
             
-            # 先使用大模型分析问题
-            analysis_result = await client.analyze_question_with_llm(question)
-            print(f"\n大模型解析结果: {json.dumps(analysis_result, ensure_ascii=False, indent=2)}")
-            
-            # 召回相关分片
-            chunks = await client.search_knowledge_base(kb_id, question, top_k=RAGFlowClient.DEFAULT_TOP_K)
-            
-            print(f"\n原始分片 ({len(chunks)} 个):")
-            print("-" * 50)
-            for i, chunk in enumerate(chunks, 1):
-                content = chunk.get('content', '')
-                similarity = chunk.get('vector_similarity', chunk.get('similarity', 'N/A'))
-                print(f"分片 {i} (相似度: {similarity}):")
-                print(content)
-                print("-" * 30)
-            
             # 提取内容文本用于解析
             contents = [chunk.get('content', '') for chunk in chunks if chunk.get('content')]
             
             # 使用parse_to_json进行预处理
             parsed_data = client.parse_to_json(contents)
-            
-            print(f"\n预处理后的分片 ({len(parsed_data)} 个结构化数据项):")
-            print("-" * 50)
-            for i, item in enumerate(parsed_data, 1):
-                print(f"结构化数据 {i}:")
-                print(json.dumps(item, ensure_ascii=False, indent=2))
-                print("-" * 30)
                 
         except Exception as e:
             print(f"Error: {e}")
