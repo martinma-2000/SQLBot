@@ -4,6 +4,7 @@ RAGFlow客户端模块
 """
 import httpx
 import json
+import os
 from typing import Dict, List, Optional, Any
 from common.utils.logger import logger
 
@@ -448,134 +449,189 @@ class RAGFlowClient:
             'documents': documents,
             'total_documents': len(documents)
         }
-
-
-if __name__ == "__main__":
-    import asyncio
-    import sys
-    import json
     
-    class KnowledgeRetriever:
-        """知识召回器"""
+    async def delete_document(self, kb_id: str, doc_id: str) -> bool:
+        """
+        删除知识库中的文档
         
-        def __init__(self, client):
-            self.client = client
-        
-        async def retrieve_relevant_chunks(self, question: str, kb_name: str = None, top_k: int = RAGFlowClient.DEFAULT_TOP_K):
-            """
-            从知识库中召回与问题最相关的分片
+        Args:
+            kb_id: 知识库ID
+            doc_id: 文档ID
             
-            Args:
-                question: 用户的问题
-                kb_name: 知识库名称，如果为None则使用第一个可用的知识库
-                top_k: 返回最相关的分片数量
-                
-            Returns:
-                相关分片列表
-            """
-            # 获取知识库列表
-            kbs = await self.client.get_knowledge_bases()
-            if not kbs:
-                raise ValueError("No knowledge bases found")
-            
-            # 确定要使用的知识库
-            if kb_name:
-                target_kb = next((kb for kb in kbs if kb.get('name') == kb_name), None)
-                if not target_kb:
-                    raise ValueError(f"Knowledge base '{kb_name}' not found")
-            else:
-                # 使用第一个知识库
-                target_kb = kbs[0]
-            
-            kb_id = target_kb.get('id')
-            print(f"Using knowledge base: {target_kb.get('name')}")
-            
-            # 执行召回
-            print(f"Retrieving relevant chunks for question: {question}")
-            chunks = await self.client.search_knowledge_base(kb_id, question, top_k)
-            
-            return chunks
-        
-        async def format_chunks_for_llm(self, chunks: list) -> str:
-            """
-            将召回的分片格式化为适合LLM使用的上下文
-            
-            Args:
-                chunks: 召回的分片列表
-                
-            Returns:
-                格式化的上下文字符串
-            """
-            if not chunks:
-                return "No relevant information found."
-            
-            context_parts = []
-            for i, chunk in enumerate(chunks, 1):
-                # 知识库召回片段源
-                content = chunk.get('content', '')
-                similarity = chunk.get('vector_similarity', chunk.get('similarity', 'N/A'))
-                context_parts.append(f"Reference {i} (Similarity: {similarity}):\n{content}")
-            
-            return "\n\n".join(context_parts)
-    
-    async def main():
-        # 注意：这里需要提供实际的 RAGFlow URL 和 API Key
-        # 仅用于测试目的
-        if len(sys.argv) < 3:
-            print("Usage: python ragflow_client.py <base_url> <api_key> [question]")
-            return
-        # RAG配置
-        base_url = sys.argv[1]
-        api_key = sys.argv[2]
-        question = sys.argv[3] if len(sys.argv) > 3 else "今年陕西农信的信用卡发卡量有多少？"
-        
-        client = RAGFlowClient(base_url, api_key)
-        
-        # 测试知识库召回功能
-        print(f"Question: {question}\n")
-        
+        Returns:
+            删除是否成功
+        """
         try:
-            # 获取知识库列表
-            kbs = await client.get_knowledge_bases()
-            if not kbs:
-                print("No knowledge bases found")
-                return
-            
-            # 使用第一个知识库或指定的知识库
-            target_kb = kbs[0]
-            kb_id = target_kb.get('id')
-            kb_name = target_kb.get('name')
-            print(f"Using knowledge base: {kb_name} (ID: {kb_id})")
-            
-            print("\n" + "="*60)
-            print("测试1: 原始召回数据")
-            print("="*60)
-            
-            # 先使用大模型分析问题
-            analysis_result = await client.analyze_question_with_llm(question)
-            print(f"\n大模型解析结果: {json.dumps(analysis_result, ensure_ascii=False, indent=2)}")
-            
-            # 召回相关分片
-            chunks = await client.search_knowledge_base(kb_id, question, top_k=RAGFlowClient.DEFAULT_TOP_K)
-            print(f"召回了 {len(chunks)} 个分片")
-            
-            # 显示原始召回内容
-            for i, chunk in enumerate(chunks, 1):
-                content = chunk.get('content', '')
-                similarity = chunk.get('vector_similarity', chunk.get('similarity', 'N/A'))
-                print(f"\n--- 分片 {i} (相似度: {similarity}) ---")
-                print(content)
-            
-            # 提取内容文本用于解析
-            contents = [chunk.get('content', '') for chunk in chunks if chunk.get('content')]
-            
-            # 使用parse_to_json进行预处理
-            parsed_data = client.parse_to_json(contents)
+            async with httpx.AsyncClient() as client:
+                # 使用通用request方法发送DELETE请求并附带请求体
+                payload = {
+                    "ids": [doc_id]
+                }
+                response = await client.request(
+                    method="DELETE",
+                    url=f"{self.base_url}/api/v1/datasets/{kb_id}/documents",
+                    headers=self.headers,
+                    json=payload,
+                    timeout=30.0
+                )
+                response.raise_for_status()
+                data = response.json()
                 
+                # 根据实际API响应格式处理数据
+                if data.get('code') == 0:
+                    logger.info(f"Document {doc_id} deleted successfully from knowledge base {kb_id}")
+                    return True
+                else:
+                    logger.error(f"RAGFlow API error: {data.get('message', 'Unknown error')}")
+                    return False
+                    
+        except httpx.RequestError as e:
+            logger.error(f"Request error when deleting document: {e}")
+            return False
         except Exception as e:
-            print(f"Error: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"Unexpected error when deleting document: {e}")
+            return False
     
-    # 运行异步主函数
-    asyncio.run(main())
+    async def upload_document(self, kb_id: str, file_path: str, **kwargs) -> Optional[Dict[str, Any]]:
+        """
+        上传文档到知识库
+        
+        Args:
+            kb_id: 知识库ID
+            file_path: 要上传的文件路径
+            **kwargs: 其他参数，如parser_config等
+            
+        Returns:
+            上传的文档信息，如果失败返回None
+        """
+        try:
+            # 检查文件是否存在
+            if not os.path.exists(file_path):
+                logger.error(f"File not found: {file_path}")
+                return None
+                
+            # 准备multipart表单数据
+            with open(file_path, 'rb') as file:
+                files = {'file': (os.path.basename(file_path), file, 'application/octet-stream')}
+                data = {'kb_id': kb_id}
+                
+                # 添加其他参数
+                for key, value in kwargs.items():
+                    data[key] = value
+                
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(
+                        f"{self.base_url}/api/v1/datasets/{kb_id}/documents",
+                        headers={'Authorization': self.headers['Authorization']},  # 不包含Content-Type
+                        files=files,
+                        data=data,
+                        timeout=300.0  # 上传可能需要较长时间
+                    )
+                    
+                    response.raise_for_status()
+                    result = response.json()
+                    
+                    if result.get('code') == 0:
+                        doc_info = result.get('data', {})
+                        logger.info(f"Document uploaded successfully: {doc_info}")
+                        
+                        # 自动解析上传的文档
+                        if isinstance(doc_info, dict) and 'id' in doc_info:
+                            doc_ids = [doc_info['id']]
+                        elif isinstance(doc_info, list) and len(doc_info) > 0 and 'id' in doc_info[0]:
+                            doc_ids = [doc['id'] for doc in doc_info]
+                        else:
+                            doc_ids = []
+                            
+                        if doc_ids:
+                            parse_success = await self.parse_documents(kb_id, doc_ids)
+                            if parse_success:
+                                logger.info(f"Document(s) {doc_ids} parsed successfully")
+                            else:
+                                logger.error(f"Failed to parse document(s) {doc_ids}")
+                        
+                        return doc_info
+                    else:
+                        logger.error(f"RAGFlow API error: {result.get('message', 'Unknown error')}")
+                        return None
+                        
+        except httpx.RequestError as e:
+            logger.error(f"Request error when uploading document: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error when uploading document: {e}")
+            return None
+    
+    async def parse_documents(self, kb_id: str, document_ids: List[str]) -> bool:
+        """
+        解析知识库中的文档
+        
+        Args:
+            kb_id: 知识库ID
+            document_ids: 要解析的文档ID列表
+            
+        Returns:
+            解析是否成功
+        """
+        try:
+            async with httpx.AsyncClient() as client:
+                payload = {
+                    "document_ids": document_ids
+                }
+                response = await client.post(
+                    f"{self.base_url}/api/v1/datasets/{kb_id}/chunks",
+                    headers=self.headers,
+                    json=payload,
+                    timeout=30.0
+                )
+                response.raise_for_status()
+                data = response.json()
+                
+                # 根据实际API响应格式处理数据
+                if data.get('code') == 0:
+                    logger.info(f"Documents {document_ids} parsed successfully in knowledge base {kb_id}")
+                    return True
+                else:
+                    logger.error(f"RAGFlow API error: {data.get('message', 'Unknown error')}")
+                    return False
+                    
+        except httpx.RequestError as e:
+            logger.error(f"Request error when parsing documents: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error when parsing documents: {e}")
+            return False
+    
+    async def update_document(self, kb_id: str, doc_id: str, new_file_path: str, **kwargs) -> bool:
+        """
+        更新知识库中的文档（先删除再上传）
+        
+        Args:
+            kb_id: 知识库ID
+            doc_id: 要更新的文档ID
+            new_file_path: 新文件的路径
+            **kwargs: 传递给上传方法的其他参数
+            
+        Returns:
+            更新是否成功
+        """
+        try:
+            # 1. 删除旧文档
+            delete_success = await self.delete_document(kb_id, doc_id)
+            if not delete_success:
+                logger.error(f"Failed to delete old document {doc_id}")
+                return False
+                
+            # 2. 上传新文档
+            new_doc = await self.upload_document(kb_id, new_file_path, **kwargs)
+            if not new_doc:
+                logger.error(f"Failed to upload new document from {new_file_path}")
+                return False
+                
+            logger.info(f"Document successfully updated. Old ID: {doc_id}, New ID: {new_doc.get('id') if isinstance(new_doc, dict) else new_doc[0].get('id') if isinstance(new_doc, list) and len(new_doc) > 0 else 'Unknown'}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error updating document: {e}")
+            return False
+
