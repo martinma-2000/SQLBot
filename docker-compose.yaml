@@ -4,6 +4,7 @@ services:
     container_name: sqlbot
     restart: always
     privileged: true
+    ipc: host
     networks:
       - sqlbot-network
     ports:
