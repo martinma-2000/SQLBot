@@ -9,6 +9,7 @@ from typing import List
 import orjson
 import pandas as pd
 from fastapi import APIRouter, File, UploadFile, HTTPException, Form
+import requests
 from pydantic import BaseModel
 
 from excel_processing.excel_extract import ExcelHeaderProcessor
@@ -43,6 +44,33 @@ class ConcatenateRequest(BaseModel):
     """拼接请求模型"""
     file_paths: List[str]
     sheet_names: List[str] = None
+
+
+class FetchApiRequest(BaseModel):
+    """通过API拉取Excel的请求模型"""
+    endpoint: str
+    method: str = "GET"
+    date_m: str | None = None
+    p_date_m: str | None = None
+    period_type: str | None = None  # 周期类型：day|month|quarter|year，默认month
+    period: str | None = None       # 周期值，如 202411（month）、20241112（day）、2024Q4（quarter）
+    headerKey: str | None = None
+    headerValue: str | None = None
+    cookieKey: str | None = None
+    cookieValue: str | None = None
+    paramKey: str | None = None
+    paramValue: str | None = None
+    timeout: int = 30
+    separator: str = "_"
+
+
+class TestApiResponse(BaseModel):
+    """API连通性/下载测试响应模型"""
+    ok: bool = True
+    message: str = "API可达且返回Excel"
+    ext: str | None = None
+    sheet_names: List[str] | None = None
+    filename: str | None = None
 
 
 @router.get("/ws/{oid}", include_in_schema=False)
@@ -321,6 +349,256 @@ async def upload_excel(session: SessionDep, file: UploadFile = File(...)):
     return await asyncio.to_thread(inner)
 
 
+@router.post("/fetchExcelFromApi")
+async def fetch_excel_from_api(session: SessionDep, req: FetchApiRequest):
+    """
+    通过API拉取Excel并进行预处理，然后与本地Excel上传流程一致：入库并返回sheet信息。
+
+    入参:
+    - endpoint: API地址
+    - method: HTTP方法，默认GET
+    - date_m/p_date_m: 作为查询参数传递（可选）
+    - header/cookie/param: 单个认证或参数键值（可选）
+    - timeout: 超时秒数
+    - separator: 多级表头连接符
+    """
+
+    # 准备下载目录
+    os.makedirs(path, exist_ok=True)
+
+    # 构造请求
+    url = req.endpoint
+    params = {}
+    if req.paramKey and req.paramValue:
+        params[req.paramKey] = req.paramValue
+    if req.date_m:
+        params['date_m'] = req.date_m
+    if req.p_date_m:
+        params['p_date_m'] = req.p_date_m
+    headers = {req.headerKey: req.headerValue} if req.headerKey and req.headerValue else None
+    cookies = {req.cookieKey: req.cookieValue} if req.cookieKey and req.cookieValue else None
+
+    # 生成原始下载文件名
+    file_hash = hashlib.sha256(uuid.uuid4().bytes).hexdigest()[:10]
+    raw_ext = 'xlsx'
+    raw_filename = f"{(req.p_date_m or 'api')}_{file_hash}.{raw_ext}"
+    raw_save_path = os.path.join(path, raw_filename)
+
+    # 下载Excel
+    try:
+        resp = requests.request(
+            req.method.upper(),
+            url,
+            params=params if req.method.upper() == 'GET' else None,
+            data=params if req.method.upper() != 'GET' else None,
+            headers=headers,
+            cookies=cookies,
+            timeout=req.timeout,
+        )
+        resp.raise_for_status()
+
+        # 尝试根据响应头判断文件扩展名
+        content_disposition = resp.headers.get('Content-Disposition', '')
+        if 'filename' in content_disposition:
+            try:
+                fname = content_disposition.split('filename=')[-1].strip('"')
+                if '.' in fname:
+                    raw_ext = fname.split('.')[-1].lower()
+            except Exception:
+                pass
+        else:
+            ctype = resp.headers.get('Content-Type', '')
+            if 'spreadsheetml' in ctype or 'excel' in ctype:
+                raw_ext = 'xlsx'
+            elif 'csv' in ctype:
+                raw_ext = 'csv'
+            elif 'ms-excel' in ctype:
+                raw_ext = 'xls'
+
+        # 如果扩展名不同，更新保存路径
+        raw_filename = f"{(req.p_date_m or 'api')}_{file_hash}.{raw_ext}"
+        raw_save_path = os.path.join(path, raw_filename)
+
+        with open(raw_save_path, 'wb') as f:
+            f.write(resp.content)
+    except Exception as e:
+        raise HTTPException(400, f"下载Excel失败: {str(e)}")
+
+    # 预处理（多级表头转单级）
+    if raw_ext not in ("xlsx", "xls"):
+        # 目前仅支持Excel文件
+        if os.path.exists(raw_save_path):
+            try:
+                os.remove(raw_save_path)
+            except Exception:
+                pass
+        raise HTTPException(400, "仅支持Excel文件类型（.xlsx/.xls）")
+    try:
+        processor = ExcelHeaderProcessor(separator=req.separator)
+        df = processor.convert_multi_to_single_header(raw_save_path)
+        processed_filename = raw_save_path.replace(f".{raw_ext}", "_processed.xlsx")
+        df.to_excel(processed_filename, index=False)
+    except Exception as e:
+        if os.path.exists(raw_save_path):
+            os.remove(raw_save_path)
+        raise HTTPException(500, f"预处理文件时出错: {str(e)}")
+
+    # 入库并返回sheets信息（单表 + 周期列）
+    def inner():
+        sheets = []
+        engine = get_engine_conn()
+        try:
+            # 计算周期
+            period_type = (req.period_type or 'month').lower()
+            period_value = req.period or req.date_m or req.p_date_m
+            if period_value is None:
+                # 默认使用当前月（YYYYMM）
+                from datetime import datetime
+                period_value = datetime.today().strftime('%Y%m')
+
+            # 计算稳定表名（同一URL配置归为同一张表）
+            stable_key_parts = [req.method.upper(), req.endpoint or '']
+            if req.headerKey and req.headerValue:
+                stable_key_parts.append(f"H:{req.headerKey}={req.headerValue}")
+            if req.cookieKey and req.cookieValue:
+                stable_key_parts.append(f"C:{req.cookieKey}={req.cookieValue}")
+            # 仅在非日期参数时参与稳定key
+            if req.paramKey and req.paramValue and req.paramKey not in {'date_m', 'p_date_m'}:
+                stable_key_parts.append(f"P:{req.paramKey}={req.paramValue}")
+            stable_key = '|'.join(stable_key_parts)
+            stable_hash = hashlib.sha256(stable_key.encode('utf-8')).hexdigest()[:8]
+            tableName = f"api_{stable_hash}_data"
+
+            # 读取所有sheet，合并到同一张表，追加周期列与sheet_name
+            sheet_names = pd.ExcelFile(processed_filename).sheet_names
+            for sheet_name in sheet_names:
+                df_sheet = pd.read_excel(processed_filename, sheet_name=sheet_name, engine='calamine')
+                # 在前置位置添加周期列，避免影响末尾两列的特殊类型推断
+                df_sheet.insert(0, 'period_type', period_type)
+                df_sheet.insert(1, 'period', period_value)
+                # 添加sheet_name便于区分来源
+                df_sheet.insert(2, 'sheet_name', sheet_name)
+                insert_pg(df_sheet, tableName, engine, mode='append', preserve_columns=True, dedupe=True)
+
+            # 响应返回统一表
+            sheets.append({"tableName": tableName, "tableComment": "Single table with period columns"})
+        finally:
+            # 保留处理后的文件，便于复查；原始下载文件删除
+            if os.path.exists(raw_save_path):
+                try:
+                    os.remove(raw_save_path)
+                except Exception:
+                    pass
+        return {"filename": os.path.basename(processed_filename), "sheets": sheets}
+
+    return await asyncio.to_thread(inner)
+
+
+@router.post("/testApiExcel", response_model=TestApiResponse)
+async def test_api_excel(session: SessionDep, req: FetchApiRequest):
+    """
+    仅测试API连通性与Excel文件有效性：下载后检测文件类型并尝试解析sheet，不做入库与预处理。
+
+    入参同 FetchApiRequest。
+    返回: TestApiResponse
+    """
+    # 准备下载目录
+    os.makedirs(path, exist_ok=True)
+
+    # 构造请求
+    url = req.endpoint
+    params = {}
+    if req.paramKey and req.paramValue:
+        params[req.paramKey] = req.paramValue
+    if req.date_m:
+        params['date_m'] = req.date_m
+    if req.p_date_m:
+        params['p_date_m'] = req.p_date_m
+    headers = {req.headerKey: req.headerValue} if req.headerKey and req.headerValue else None
+    cookies = {req.cookieKey: req.cookieValue} if req.cookieKey and req.cookieValue else None
+
+    # 临时文件名
+    file_hash = hashlib.sha256(uuid.uuid4().bytes).hexdigest()[:10]
+    raw_ext = 'xlsx'
+    raw_filename = f"{(req.p_date_m or 'api')}_{file_hash}.{raw_ext}"
+    raw_save_path = os.path.join(path, raw_filename)
+
+    # 下载并检测
+    try:
+        resp = requests.request(
+            req.method.upper(),
+            url,
+            params=params if req.method.upper() == 'GET' else None,
+            data=params if req.method.upper() != 'GET' else None,
+            headers=headers,
+            cookies=cookies,
+            timeout=req.timeout,
+        )
+        resp.raise_for_status()
+
+        # 判断扩展名
+        content_disposition = resp.headers.get('Content-Disposition', '')
+        ctype = resp.headers.get('Content-Type', '')
+        if 'filename' in content_disposition:
+            try:
+                fname = content_disposition.split('filename=')[-1].strip('"')
+                if '.' in fname:
+                    raw_ext = fname.split('.')[-1].lower()
+            except Exception:
+                pass
+        else:
+            if 'spreadsheetml' in ctype or 'excel' in ctype:
+                raw_ext = 'xlsx'
+            elif 'ms-excel' in ctype:
+                raw_ext = 'xls'
+            elif 'csv' in ctype:
+                raw_ext = 'csv'
+
+        raw_filename = f"{(req.p_date_m or 'api')}_{file_hash}.{raw_ext}"
+        raw_save_path = os.path.join(path, raw_filename)
+
+        with open(raw_save_path, 'wb') as f:
+            f.write(resp.content)
+    except Exception as e:
+        raise HTTPException(400, f"下载失败: {str(e)}")
+
+    # 仅支持Excel
+    if raw_ext not in ("xlsx", "xls"):
+        if os.path.exists(raw_save_path):
+            try:
+                os.remove(raw_save_path)
+            except Exception:
+                pass
+        raise HTTPException(400, "仅支持Excel文件类型（.xlsx/.xls）")
+
+    # 尝试解析sheet
+    try:
+        sheet_names = pd.ExcelFile(raw_save_path).sheet_names
+        # 进一步尝试读取首个sheet的一行，确保解析正常
+        try:
+            if sheet_names:
+                _ = pd.read_excel(raw_save_path, sheet_name=sheet_names[0], nrows=1, engine='calamine')
+        except Exception:
+            # 读取行失败不致命，仍返回sheet名称供参考
+            pass
+        return TestApiResponse(
+            ok=True,
+            message="API可达且返回Excel",
+            ext=raw_ext,
+            sheet_names=sheet_names,
+            filename=os.path.basename(raw_save_path)
+        )
+    except Exception as e:
+        raise HTTPException(400, f"解析Excel失败: {str(e)}")
+    finally:
+        # 删除临时文件
+        if os.path.exists(raw_save_path):
+            try:
+                os.remove(raw_save_path)
+            except Exception:
+                pass
+
+
 @router.post("/preprocessExcel", response_model=PreprocessResponse)
 async def preprocess_excel(
     file: UploadFile = File(...),
@@ -540,59 +818,226 @@ async def merge_excels_horizontally(
         raise HTTPException(500, f"横向合并文件时出错: {str(e)}")
 
 
-def insert_pg(df, tableName, engine):
-    # fix field type
+def insert_pg(df, tableName, engine, mode: str = 'replace', preserve_columns: bool = False, dedupe: bool = False):
+    """将 DataFrame 插入 PG。
+
+    - mode='replace': 保持原有行为（替换表结构并写入数据），列名重命名为字母序列。
+    - mode='append': 若表不存在则按当前列创建表（不写入数据），随后使用 COPY 追加行；可选保留原列名。
+    """
+
+    # 修正可能的 uint64 类型为字符串，避免 PG 不兼容
     for i in range(len(df.dtypes)):
         if str(df.dtypes[i]) == 'uint64':
             df[str(df.columns[i])] = df[str(df.columns[i])].astype('string')
 
-    # 生成字母序列作为列名
+    # 列名处理
+    original_columns = df.columns.tolist()
+
     def get_column_name(index):
         if index < 26:
             return chr(ord('A') + index)
         else:
             return chr(ord('A') + index // 26 - 1) + chr(ord('A') + index % 26)
 
-    # 保存原始列名用于注释
-    original_columns = df.columns.tolist()
-
-    # 重命名列名为字母序列
-    new_columns = [get_column_name(i) for i in range(len(df.columns))]
-    df.columns = new_columns
+    def normalize_name(name: str) -> str:
+        # 保留 period 列的原名；其他列做简单规范化
+        if name in {'period_type', 'period', 'sheet_name'}:
+            return name
+        name = str(name)
+        # 去除两端空白，替换空白和特殊字符为下划线
+        import re
+        name = name.strip()
+        name = re.sub(r"[^0-9A-Za-z_]+", "_", name)
+        name = re.sub(r"_+", "_", name)
+        # 如果规范化结果为纯下划线或空，回退为通用列名
+        if re.fullmatch(r"_+", name) or name == "":
+            name = "col"
+        # 防止空列名
+        return name or 'col'
 
     conn = engine.raw_connection()
     cursor = conn.cursor()
 
-    dtype_dict = {}
-    if len(new_columns) >= 2:
-        dtype_dict[new_columns[-2]] = Text  # 倒数第二列：表格日期_source
-        dtype_dict[new_columns[-1]] = Date  # 最后一列：表格日期
     try:
-        df.to_sql(
-            tableName,
-            engine,
-            if_exists='replace',
-            index=False,
-            dtype=dtype_dict
-        )
+        if mode == 'append':
+            # 追加模式：保留列名（或规范化），不存在则建表
+            if preserve_columns:
+                # 规范化并确保列名唯一
+                raw_cols = [normalize_name(c) for c in original_columns]
+                seen = {}
+                new_columns = []
+                for col in raw_cols:
+                    base = col
+                    if base not in seen:
+                        seen[base] = 1
+                        new_columns.append(base)
+                    else:
+                        # 追加递增后缀，避免与已存在列冲突
+                        idx = seen[base]
+                        candidate = f"{base}_{idx}"
+                        while candidate in seen:
+                            idx += 1
+                            candidate = f"{base}_{idx}"
+                        seen[base] = idx + 1
+                        seen[candidate] = 1
+                        new_columns.append(candidate)
+                df.columns = new_columns
+            else:
+                new_columns = [get_column_name(i) for i in range(len(df.columns))]
+                df.columns = new_columns
 
-        comment_queries = []
-        for i, col_name in enumerate(new_columns):
-            col_comment = original_columns[i].replace("'", "''")
-            comment_queries.append(f"COMMENT ON COLUMN \"{tableName}\".\"{col_name}\" IS '{col_comment}'")
-        for query in comment_queries:
-            cursor.execute(query)
-        # trans csv
-        output = StringIO()
-        df.to_csv(output, sep='\t', header=False, index=False)
-        # output.seek(0)
+            # 检查表是否存在
+            cursor.execute(
+                "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name=%s)",
+                (tableName,)
+            )
+            exists = cursor.fetchone()[0]
 
-        # pg copy
-        cursor.copy_expert(
-            sql=f"""COPY "{tableName}" FROM STDIN WITH CSV DELIMITER E'\t'""",
-            file=output
-        )
-        conn.commit()
+            if not exists:
+                # 创建空表结构（不写入数据），以便后续 COPY 追加
+                dtype_dict = {}
+                # 针对常规约定列设定类型
+                for col in new_columns:
+                    if col in {'period_type', 'period', 'sheet_name'}:
+                        dtype_dict[col] = Text
+                # 若原逻辑依赖最后两列为日期相关，尽量维持（仅在未保留列名时）
+                if not preserve_columns and len(new_columns) >= 2:
+                    dtype_dict[new_columns[-2]] = Text
+                    dtype_dict[new_columns[-1]] = Date
+
+                # 仅创建结构
+                df.head(0).to_sql(
+                    tableName,
+                    engine,
+                    if_exists='replace',
+                    index=False,
+                    dtype=dtype_dict
+                )
+
+                # 为列添加注释（保留原始列名痕迹）
+                comment_queries = []
+                for i, col_name in enumerate(new_columns):
+                    col_comment = original_columns[i]
+                    if isinstance(col_comment, str):
+                        col_comment = col_comment.replace("'", "''")
+                    else:
+                        col_comment = str(col_comment)
+                    comment_queries.append(
+                        f"COMMENT ON COLUMN \"{tableName}\".\"{col_name}\" IS '{col_comment}'"
+                    )
+                for query in comment_queries:
+                    cursor.execute(query)
+
+            else:
+                # 表已存在时，确保列顺序匹配表结构
+                cursor.execute(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name=%s ORDER BY ordinal_position",
+                    (tableName,)
+                )
+                existing_cols = [r[0] for r in cursor.fetchall()]
+                # 尝试对齐 DataFrame 列顺序；只选择存在的列，避免多余列导致 COPY 失败
+                # 若缺少列，抛错给调用者（保持简单一致性）
+                missing = [c for c in existing_cols if c not in df.columns]
+                if missing:
+                    raise HTTPException(400, f"待追加数据缺少必需列: {missing}")
+                df = df[existing_cols]
+                new_columns = existing_cols
+
+            # 先在批次内去重
+            if dedupe:
+                df = df.drop_duplicates()
+
+            if not exists:
+                # 目标表不存在：直接 COPY 到目标表
+                output = StringIO()
+                df.to_csv(output, sep='\t', header=False, index=False)
+                output.seek(0)
+                cursor.copy_expert(
+                    sql=f"""COPY "{tableName}" FROM STDIN WITH CSV DELIMITER E'\t'""",
+                    file=output
+                )
+                conn.commit()
+            else:
+                # 目标表存在：使用阶段表 + 反连接插入避免重复
+                import uuid as _uuid
+                stage_table = f"__stage_{_uuid.uuid4().hex[:10]}"
+
+                # 创建阶段表结构
+                df.head(0).to_sql(
+                    stage_table,
+                    engine,
+                    if_exists='replace',
+                    index=False
+                )
+
+                # COPY 到阶段表
+                output = StringIO()
+                df.to_csv(output, sep='\t', header=False, index=False)
+                output.seek(0)
+                cursor.copy_expert(
+                    sql=f"""COPY "{stage_table}" FROM STDIN WITH CSV DELIMITER E'\t'""",
+                    file=output
+                )
+
+                # 反连接插入新行（若 dedupe=False，则相当于全量插入）
+                cols_quoted = ', '.join([f'"{c}"' for c in new_columns])
+                if dedupe:
+                    join_cond = ' AND '.join([f't."{c}" = s."{c}"' for c in new_columns])
+                    insert_sql = (
+                        f"INSERT INTO \"{tableName}\" ({cols_quoted}) "
+                        f"SELECT {cols_quoted} FROM \"{stage_table}\" s "
+                        f"WHERE NOT EXISTS (SELECT 1 FROM \"{tableName}\" t WHERE {join_cond})"
+                    )
+                else:
+                    insert_sql = (
+                        f"INSERT INTO \"{tableName}\" ({cols_quoted}) "
+                        f"SELECT {cols_quoted} FROM \"{stage_table}\""
+                    )
+                cursor.execute(insert_sql)
+
+                # 删除阶段表
+                cursor.execute(f'DROP TABLE "{stage_table}"')
+                conn.commit()
+
+        else:
+            # 替换模式：保持旧行为（重命名为字母列 + to_sql 替换 + 注释 + COPY）
+            new_columns = [get_column_name(i) for i in range(len(df.columns))]
+            df.columns = new_columns
+
+            dtype_dict = {}
+            if len(new_columns) >= 2:
+                dtype_dict[new_columns[-2]] = Text  # 倒数第二列：表格日期_source
+                dtype_dict[new_columns[-1]] = Date  # 最后一列：表格日期
+
+            # 直接替换并写入（与原逻辑一致）
+            df.to_sql(
+                tableName,
+                engine,
+                if_exists='replace',
+                index=False,
+                dtype=dtype_dict
+            )
+
+            # 列注释保留原始列名
+            comment_queries = []
+            for i, col_name in enumerate(new_columns):
+                col_comment = original_columns[i].replace("'", "''")
+                comment_queries.append(
+                    f"COMMENT ON COLUMN \"{tableName}\".\"{col_name}\" IS '{col_comment}'"
+                )
+            for query in comment_queries:
+                cursor.execute(query)
+
+            # COPY 再插入一遍（维持与旧实现一致的效果）
+            output = StringIO()
+            df.to_csv(output, sep='\t', header=False, index=False)
+            output.seek(0)
+            cursor.copy_expert(
+                sql=f"""COPY "{tableName}" FROM STDIN WITH CSV DELIMITER E'\t'""",
+                file=output
+            )
+            conn.commit()
+
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(400, str(e))

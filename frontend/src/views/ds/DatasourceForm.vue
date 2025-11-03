@@ -137,8 +137,8 @@ const form = ref<any>({
   // API数据源字段
   endpoint: '',
   method: 'POST',
-  requestBody: '',
-  successStatusCodes: '200,201',
+  date_m: '',
+  p_date_m: '',
   headerKey: '',
   headerValue: '',
   cookieKey: '',
@@ -470,6 +470,43 @@ const buildConf = () => {
 }
 
 const check = () => {
+  // 在 API 类型下，执行“API连通性/下载测试”；其他类型保持原校验逻辑
+  if (form.value.type === 'api') {
+    const apiReq = {
+      endpoint: form.value.endpoint,
+      method: form.value.method || 'GET',
+      date_m: form.value.date_m,
+      p_date_m: form.value.p_date_m,
+      headerKey: form.value.headerKey,
+      headerValue: form.value.headerValue,
+      cookieKey: form.value.cookieKey,
+      cookieValue: form.value.cookieValue,
+      paramKey: form.value.paramKey,
+      paramValue: form.value.paramValue,
+      timeout: form.value.timeout || 30,
+      separator: '_',
+    }
+    datasourceApi
+      .testApiExcel(apiReq)
+      .then((res: any) => {
+        const sheetCount = (res?.sheet_names ?? []).length
+        ElMessage({
+          message: `API联通正常，检测到${sheetCount}个Sheet`,
+          type: 'success',
+          showClose: true,
+        })
+      })
+      .catch((err: any) => {
+        console.error('Test API Excel failed:', err)
+        ElMessage({
+          message: 'API联通或文件类型校验失败',
+          type: 'error',
+          showClose: true,
+        })
+      })
+    return
+  }
+
   const requestObj = buildConf()
   datasourceApi.check(requestObj).then((res: any) => {
     if (res) {
@@ -510,42 +547,46 @@ const next = debounce(async (formEl: FormInstance | undefined) => {
           emit('changeActiveStep', props.activeStep + 1)
         }
       } else if (form.value.type === 'api') {
-        // API数据源直接保存，跳过表选择步骤
-        if (checkLoading.value) return
-        const requestObj = buildConf()
-        checkLoading.value = true
+        // API数据源：通过填写url和参数，服务端拉取并处理Excel，然后进入表选择步骤
+        if (uploadLoading.value) return
+        uploadLoading.value = true
+        const apiReq = {
+          endpoint: form.value.endpoint,
+          method: form.value.method || 'GET',
+          date_m: form.value.date_m,
+          p_date_m: form.value.p_date_m,
+          headerKey: form.value.headerKey,
+          headerValue: form.value.headerValue,
+          cookieKey: form.value.cookieKey,
+          cookieValue: form.value.cookieValue,
+          paramKey: form.value.paramKey,
+          paramValue: form.value.paramValue,
+          timeout: form.value.timeout || 30,
+          separator: '_',
+        }
         datasourceApi
-          .check(requestObj)
-          .then((res: boolean) => {
-            if (res) {
-              // API数据源连接成功后直接保存
-              saveLoading.value = true
-              // 为API数据源添加默认的api_data表
-              requestObj.tables = [{ table_name: 'api_data', table_comment: 'API数据表' }]
-              datasourceApi
-                .add(requestObj)
-                .then(() => {
-                  close()
-                  emit('refresh')
-                  ElMessage({
-                    message: 'API数据源配置成功',
-                    type: 'success',
-                    showClose: true,
-                  })
-                })
-                .finally(() => {
-                  saveLoading.value = false
-                })
-            } else {
-              ElMessage({
-                message: t('ds.form.connect.failed'),
-                type: 'error',
-                showClose: true,
-              })
-            }
+          .fetchExcelFromApi(apiReq)
+          .then((res: any) => {
+            // 与本地Excel上传一致的返回结构
+            const data = res
+            form.value.filename = data.filename
+            form.value.sheets = data.sheets
+            tableList.value = data.sheets
+            excelUploadSuccess.value = true
+            // 切换到excel流程以保持后续一致
+            form.value.type = 'excel'
+            emit('changeActiveStep', props.activeStep + 1)
+          })
+          .catch((err: any) => {
+            console.error('Fetch Excel from API failed:', err)
+            ElMessage({
+              message: '通过API获取Excel失败',
+              type: 'error',
+              showClose: true,
+            })
           })
           .finally(() => {
-            checkLoading.value = false
+            uploadLoading.value = false
           })
       } else {
         if (checkLoading.value) return
@@ -801,21 +842,21 @@ defineExpose({
             </el-select>
           </el-form-item>
           
-          <!-- 请求体 -->
-          <el-form-item label="请求体(JSON)" prop="requestBody">
+          <!-- date_m参数 -->
+          <el-form-item label="date_m" prop="date_m">
             <el-input
-              v-model="form.requestBody"
-              type="textarea"
-              :rows="5"
-              placeholder="请输入JSON格式的请求体，例如: { &quot;sql&quot;: &quot;SELECT * FROM table LIMIT 5&quot; }"
+              v-model="form.date_m"
+              clearable
+              placeholder="例如: 2025-03-31"
             />
           </el-form-item>
           
-          <!-- 成功状态码 -->
-          <el-form-item label="成功状态码" prop="successStatusCodes">
+          <!-- p_date_m参数 -->
+          <el-form-item label="p_date_m" prop="p_date_m">
             <el-input
-              v-model="form.successStatusCodes"
-              placeholder="请输入成功状态码，多个状态码用逗号分隔，例如: 200,201,204"
+              v-model="form.p_date_m"
+              clearable
+              placeholder="例如: 2025-03"
             />
           </el-form-item>
           
@@ -1063,7 +1104,7 @@ defineExpose({
     <div class="draw-foot">
       <el-button secondary @click="close">{{ t('common.cancel') }}</el-button>
       <el-button v-show="form.type !== 'excel' && !isDataTable" secondary @click="check">
-        {{ t('ds.check') }}
+        {{ form.type === 'api' ? '校验API联通' : t('ds.check') }}
       </el-button>
       <el-button v-show="activeStep !== 0 && isCreate" secondary @click="preview">
         {{ t('ds.previous') }}

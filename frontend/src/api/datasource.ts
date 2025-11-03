@@ -35,4 +35,8 @@ export const datasourceApi = {
     request.post('/datasource/mergeExcelsHorizontally', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     }),
+  // Fetch an Excel file from API and process it server-side, returning filename and sheets
+  fetchExcelFromApi: (data: any) => request.post('/datasource/fetchExcelFromApi', data),
+  // Test API connectivity and Excel validity without inserting or processing
+  testApiExcel: (data: any) => request.post('/datasource/testApiExcel', data),
 }
