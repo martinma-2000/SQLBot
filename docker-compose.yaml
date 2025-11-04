@@ -5,6 +5,8 @@ services:
     restart: always
     privileged: true
     ipc: host
+    env_file:
+      - ./backend/.env
     networks:
       - sqlbot-network
     ports:
@@ -20,6 +22,8 @@ services:
       # Project basic settings
       PROJECT_NAME: "SQLBot"
       DEFAULT_PWD: "SQLBot@123456"
+      EXCEL_PATH: /opt/sqlbot/data/excel
+      EXCEL_RETENTION_DAYS: 30
       # MCP settings
       SERVER_IMAGE_HOST: http://YOUR_SERVE_IP:MCP_PORT/images/
       # Auth & Security

@@ -16,6 +16,7 @@ import Card from './Card.vue'
 import { useEmitt } from '@/utils/useEmitt'
 import DelMessageBox from './DelMessageBox.vue'
 import { dsTypeWithImg } from './js/ds-type'
+import { decrypted } from './js/aes'
 import { useI18n } from 'vue-i18n'
 import { useUserStore } from '@/stores/user'
 import { chatApi } from '@/api/chat'
@@ -40,15 +41,47 @@ const horizontalMergeRef = ref()
 const searchLoading = ref(false)
 
 const datasourceList = shallowRef([] as Datasource[])
+
+// 根据配置中的 originType 派生展示类型：API来源的Excel显示为api图标
+const deriveDisplayType = (item: any): string => {
+  try {
+    if (item?.type === 'excel' && item?.configuration) {
+      const conf = JSON.parse(decrypted(item.configuration))
+      if (conf?.originType === 'api') return 'api'
+    }
+  } catch (e) {
+    // ignore parse or decrypt error
+  }
+  return item?.type
+}
+
+const deriveDisplayTypeName = (item: any, displayType: string): string => {
+  if (displayType === 'api' && item?.type === 'excel') {
+    const apiType = dsTypeWithImg.find((d) => d.type === 'api')
+    return apiType?.name || item?.type_name
+  }
+  return item?.type_name
+}
+
+const datasourceListDerived = computed(() =>
+  datasourceList.value.map((ele: any) => {
+    const displayType = deriveDisplayType(ele)
+    return {
+      ...ele,
+      displayType,
+      displayTypeName: deriveDisplayTypeName(ele, displayType),
+    }
+  })
+)
 const defaultDatasourceList = shallowRef(dsTypeWithImg as (Datasource & { img: string })[])
 
 const currentDefaultDatasource = ref('')
 const datasourceListWithSearch = computed(() => {
-  if (!keywords.value && !currentDatasourceType.value) return datasourceList.value
-  return datasourceList.value.filter(
-    (ele) =>
+  if (!keywords.value && !currentDatasourceType.value) return datasourceListDerived.value
+  return datasourceListDerived.value.filter(
+    (ele: any) =>
       ele.name.toLowerCase().includes(keywords.value.toLowerCase()) &&
-      (ele.type === currentDatasourceType.value || !currentDatasourceType.value)
+      (ele.displayType === currentDatasourceType.value || !currentDatasourceType.value)
   )
 })
 const defaultDatasourceListWithSearch = computed(() => {
@@ -311,8 +344,8 @@ useEmitt({
             :id="ele.id"
             :key="ele.id"
             :name="ele.name"
-            :type="ele.type"
-            :type-name="ele.type_name"
+            :type="ele.displayType"
+            :type-name="ele.displayTypeName"
             :num="ele.num"
             :description="ele.description"
             @question="handleQuestion"

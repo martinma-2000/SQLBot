@@ -473,12 +473,20 @@ async def fetch_excel_from_api(session: SessionDep, req: FetchApiRequest):
             sheet_names = pd.ExcelFile(processed_filename).sheet_names
             for sheet_name in sheet_names:
                 df_sheet = pd.read_excel(processed_filename, sheet_name=sheet_name, engine='calamine')
-                # 在前置位置添加周期列，避免影响末尾两列的特殊类型推断
-                df_sheet.insert(0, 'period_type', period_type)
-                df_sheet.insert(1, 'period', period_value)
-                # 添加sheet_name便于区分来源
-                df_sheet.insert(2, 'sheet_name', sheet_name)
-                insert_pg(df_sheet, tableName, engine, mode='append', preserve_columns=True, dedupe=True)
+                # 添加周期列与 sheet_name，并将这三列放到倒数第5、倒数第4、倒数第3列
+                df_sheet['period_type'] = period_type
+                df_sheet['period'] = period_value
+                df_sheet['sheet_name'] = sheet_name
+                cols = list(df_sheet.columns)
+                base_cols = [c for c in cols if c not in {'period_type', 'period', 'sheet_name'}]
+                if len(base_cols) >= 2:
+                    head = base_cols[:-2]
+                    last_two = base_cols[-2:]
+                    new_order = head + ['period_type', 'period', 'sheet_name'] + last_two
+                else:
+                    new_order = base_cols + ['period_type', 'period', 'sheet_name']
+                df_sheet = df_sheet[new_order]
+                insert_pg(df_sheet, tableName, engine, mode='append', preserve_columns=True, dedupe=True, dedupe_keys=['period'])
 
             # 响应返回统一表
             sheets.append({"tableName": tableName, "tableComment": "Single table with period columns"})
@@ -489,6 +497,12 @@ async def fetch_excel_from_api(session: SessionDep, req: FetchApiRequest):
                     os.remove(raw_save_path)
                 except Exception:
                     pass
+            # 根据配置删除处理后的文件，避免 EXCEL_PATH 积累
+            try:
+                if not settings.KEEP_PROCESSED_EXCEL and os.path.exists(processed_filename):
+                    os.remove(processed_filename)
+            except Exception:
+                pass
         return {"filename": os.path.basename(processed_filename), "sheets": sheets}
 
     return await asyncio.to_thread(inner)
@@ -818,7 +832,7 @@ async def merge_excels_horizontally(
         raise HTTPException(500, f"横向合并文件时出错: {str(e)}")
 
 
-def insert_pg(df, tableName, engine, mode: str = 'replace', preserve_columns: bool = False, dedupe: bool = False):
+def insert_pg(df, tableName, engine, mode: str = 'replace', preserve_columns: bool = False, dedupe: bool = False, dedupe_keys: list[str] | None = None):
     """将 DataFrame 插入 PG。
 
     - mode='replace': 保持原有行为（替换表结构并写入数据），列名重命名为字母序列。
@@ -943,9 +957,22 @@ def insert_pg(df, tableName, engine, mode: str = 'replace', preserve_columns: bo
                 df = df[existing_cols]
                 new_columns = existing_cols
 
-            # 先在批次内去重
+            # 先在批次内去重（若指定了去重键，则按子集去重）
+            # 注意：当仅以 period 作为去重键时，批次内所有行 period 值相同，
+            # 若直接按 period 去重会导致只保留一行。此场景应改用表级去重（NOT EXISTS），
+            # 以实现“首批同月全量写入，后续同月跳过”。
             if dedupe:
-                df = df.drop_duplicates()
+                do_batch_dedupe = True
+                subset_cols = None
+                if dedupe_keys:
+                    subset_cols = [c for c in dedupe_keys if c in df.columns]
+                    if not subset_cols:
+                        subset_cols = None
+                    # 当仅按 period 作为键时，跳过批次内去重，交由表级去重控制
+                    if subset_cols and set(subset_cols) == {"period"}:
+                        do_batch_dedupe = False
+                if do_batch_dedupe:
+                    df = df.drop_duplicates(subset=subset_cols)
 
             if not exists:
                 # 目标表不存在：直接 COPY 到目标表
@@ -982,7 +1009,14 @@ def insert_pg(df, tableName, engine, mode: str = 'replace', preserve_columns: bo
                 # 反连接插入新行（若 dedupe=False，则相当于全量插入）
                 cols_quoted = ', '.join([f'"{c}"' for c in new_columns])
                 if dedupe:
-                    join_cond = ' AND '.join([f't."{c}" = s."{c}"' for c in new_columns])
+                    # 使用指定的去重键构造反连接条件；未指定则使用全部列
+                    if dedupe_keys:
+                        keys = [c for c in dedupe_keys if c in new_columns]
+                        if not keys:
+                            keys = new_columns
+                    else:
+                        keys = new_columns
+                    join_cond = ' AND '.join([f't."{c}" = s."{c}"' for c in keys])
                     insert_sql = (
                         f"INSERT INTO \"{tableName}\" ({cols_quoted}) "
                         f"SELECT {cols_quoted} FROM \"{stage_table}\" s "

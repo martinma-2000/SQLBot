@@ -108,5 +108,13 @@ class Settings(BaseSettings):
     TABLE_EMBEDDING_ENABLED: bool = False
     TABLE_EMBEDDING_COUNT: int = 10
 
+    API_FETCH_JOBS: str | None = None
+
+    # Excel 清理设置
+    # 是否保留预处理后的 Excel（_processed.xlsx）；默认不保留，入库后即删除
+    KEEP_PROCESSED_EXCEL: bool = False
+    # 保留期（天）：定时清理任务会删除超过该天数的 _processed.xlsx 文件，默认 30 天
+    EXCEL_RETENTION_DAYS: int = 30
+
 
 settings = Settings()  # type: ignore

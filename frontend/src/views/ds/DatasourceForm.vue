@@ -134,6 +134,8 @@ const form = ref<any>({
   sheets: [],
   mode: 'service_name',
   timeout: 30,
+  // 来源标记：local 或 api
+  originType: 'local',
   // API数据源字段
   endpoint: '',
   method: 'POST',
@@ -177,6 +179,8 @@ const initForm = (item: any, editTable: boolean = false) => {
       const configuration = JSON.parse(decrypted(item.configuration))
       
       if (item.type === 'api') {
+        // API 类型默认来源为 api
+        form.value.originType = 'api'
         // 加载API数据源配置
         form.value.endpoint = configuration.endpoint
         form.value.method = configuration.method || 'POST'
@@ -225,6 +229,8 @@ const initForm = (item: any, editTable: boolean = false) => {
         form.value.sheets = configuration.sheets
         form.value.mode = configuration.mode
         form.value.timeout = configuration.timeout ? configuration.timeout : 30
+        // 兼容历史数据：没有标记则默认为本地
+        form.value.originType = configuration.originType || 'local'
       }
     }
 
@@ -287,6 +293,7 @@ const initForm = (item: any, editTable: boolean = false) => {
       sheets: [],
       mode: 'service_name',
       timeout: 30,
+      originType: 'local',
     }
   }
   dialogVisible.value = true
@@ -405,7 +412,9 @@ const buildConf = () => {
         requestBody: form.value.requestBody || '',
         successStatusCodes: successStatusCodes,
         certificateList: certificateList,
-        timeout: form.value.timeout || 30
+        timeout: form.value.timeout || 30,
+        // 标记来源为 API
+        originType: 'api'
       })
     );
     
@@ -420,6 +429,7 @@ const buildConf = () => {
     delete obj.paramKey;
     delete obj.paramValue;
     delete obj.timeout;
+    delete obj.originType;
     
     // 删除传统数据库字段
     delete obj.driver;
@@ -450,6 +460,8 @@ const buildConf = () => {
         sheets: form.value.sheets,
         mode: form.value.mode,
         timeout: form.value.timeout,
+        // 标记来源：默认 local；若由 API 转换则为 api
+        originType: form.value.originType || 'local',
       })
     )
     const obj = JSON.parse(JSON.stringify(form.value))
@@ -465,6 +477,7 @@ const buildConf = () => {
     delete obj.sheets
     delete obj.mode
     delete obj.timeout
+    delete obj.originType
     return obj
   }
 }
@@ -575,6 +588,8 @@ const next = debounce(async (formEl: FormInstance | undefined) => {
             excelUploadSuccess.value = true
             // 切换到excel流程以保持后续一致
             form.value.type = 'excel'
+            // 标记来源为 API，供后续展示时使用
+            form.value.originType = 'api'
             emit('changeActiveStep', props.activeStep + 1)
           })
           .catch((err: any) => {

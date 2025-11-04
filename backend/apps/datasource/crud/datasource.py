@@ -110,13 +110,39 @@ def update_ds(session: SessionDep, trans: Trans, user: CurrentUser, ds: CoreData
 def delete_ds(session: SessionDep, id: int):
     term = session.exec(select(CoreDatasource).where(CoreDatasource.id == id)).first()
     if term.type == "excel":
-        # drop all tables for current datasource
+        # 安全删除：仅在无其他数据源引用同一物理表时才真正删除物理表
         engine = get_engine_conn()
-        conf = DatasourceConf(**json.loads(aes_decrypt(term.configuration)))
-        with engine.connect() as conn:
-            for sheet in conf.sheets:
-                conn.execute(text(f'DROP TABLE IF EXISTS "{sheet["tableName"]}"'))
-            conn.commit()
+
+        # 优先使用 CoreTable 中当前数据源已选择的表
+        current_tables = session.query(CoreTable).filter(CoreTable.ds_id == id).all()
+        selected_table_names = {t.table_name for t in current_tables}
+
+        # 兼容历史：如果未选择表，则使用配置中的 sheets 作为候选
+        try:
+            conf = DatasourceConf(**json.loads(aes_decrypt(term.configuration)))
+            if conf and getattr(conf, 'sheets', None):
+                config_table_names = {sheet.get('tableName') for sheet in conf.sheets if sheet and sheet.get('tableName')}
+                selected_table_names = selected_table_names.union(config_table_names)
+        except Exception:
+            # 配置解析失败时，直接依赖 CoreTable 引用列表
+            pass
+
+        if selected_table_names:
+            with engine.connect() as conn:
+                for table_name in selected_table_names:
+                    # 统计除当前数据源外的引用数量
+                    other_refs = session.query(CoreTable).filter(
+                        CoreTable.table_name == table_name,
+                        CoreTable.ds_id != id
+                    ).count()
+
+                    if other_refs == 0:
+                        # 无其他引用，允许删除物理表
+                        conn.execute(text(f'DROP TABLE IF EXISTS "{table_name}"'))
+                    else:
+                        # 有其他引用，跳过物理删除，仅删除当前数据源的元数据
+                        pass
+                conn.commit()
 
     session.delete(term)
     session.commit()

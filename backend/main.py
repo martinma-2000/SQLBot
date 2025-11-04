@@ -12,6 +12,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from alembic import command
 from apps.api import api_router
+from apps.scheduler import setup_scheduler
 from apps.system.crud.aimodel_manage import async_model_info
 from apps.system.crud.assistant import init_dynamic_cors
 from apps.system.middleware.auth import TokenMiddleware
@@ -45,7 +46,20 @@ async def lifespan(app: FastAPI):
     SQLBotLogUtil.info("✅ SQLBot 初始化完成")
     await sqlbot_xpack.core.clean_xpack_cache()
     await async_model_info()  # 异步加密已有模型的密钥和地址
+    # 启动 APScheduler（单实例场景）
+    try:
+        setup_scheduler(app)
+    except Exception as e:
+        SQLBotLogUtil.error(f"启动 APScheduler 失败: {e}")
     yield
+    # 关闭 APScheduler
+    try:
+        scheduler = getattr(app.state, "scheduler", None)
+        if scheduler and scheduler.running:
+            scheduler.shutdown(wait=False)
+            SQLBotLogUtil.info("APScheduler 已关闭")
+    except Exception as e:
+        SQLBotLogUtil.error(f"关闭 APScheduler 失败: {e}")
     SQLBotLogUtil.info("SQLBot 应用关闭")
 
 
@@ -103,4 +117,4 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run("main:app", host="0.0.0.0", port=8010)
-    uvicorn.run("main:mcp_app", host="0.0.0.0", port=8001) # mcp server
+    # uvicorn.run("main:mcp_app", host="0.0.0.0", port=8001) # mcp server
