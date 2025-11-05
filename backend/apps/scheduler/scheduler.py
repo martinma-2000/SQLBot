@@ -42,7 +42,15 @@ def setup_scheduler(app: FastAPI) -> AsyncIOScheduler:
     - Adds a demo interval job so you can immediately observe execution.
     """
     tz = ZoneInfo("Asia/Shanghai")
-    scheduler = AsyncIOScheduler(timezone=tz)
+    # Provide sensible job defaults to avoid frequent misfires when the loop is slightly delayed
+    scheduler = AsyncIOScheduler(
+        timezone=tz,
+        job_defaults={
+            "misfire_grace_time": 90,  # allow up to 90s delay before skipping
+            "coalesce": True,
+            "max_instances": 1,
+        },
+    )
 
     # Attach so API handlers can inspect/control
     app.state.scheduler = scheduler
