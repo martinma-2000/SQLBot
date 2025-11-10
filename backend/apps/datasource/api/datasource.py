@@ -1043,8 +1043,8 @@ def insert_pg(df, tableName, engine, mode: str = 'replace', preserve_columns: bo
                 dtype_dict[new_columns[-2]] = Text  # 倒数第二列：表格日期_source
                 dtype_dict[new_columns[-1]] = Date  # 最后一列：表格日期
 
-            # 直接替换并写入（与原逻辑一致）
-            df.to_sql(
+            # 仅替换表结构，实际数据通过 COPY 插入一次，避免重复
+            df.head(0).to_sql(
                 tableName,
                 engine,
                 if_exists='replace',
