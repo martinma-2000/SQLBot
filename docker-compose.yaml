@@ -1,6 +1,6 @@
 services:
   sqlbot:
-    image: sqlbot_xsnx:v1.2.1
+    image: sqlbot_sxnx:v1.2.0
     container_name: sqlbot
     restart: always
     privileged: true
@@ -23,7 +23,8 @@ services:
       PROJECT_NAME: "SQLBot"
       DEFAULT_PWD: "SQLBot@123456"
       EXCEL_PATH: /opt/sqlbot/data/excel
-      EXCEL_RETENTION_DAYS: 30
+      KEEP_PROCESSED_EXCEL: true
+      EXCEL_RETENTION_DAYS: 1
       # MCP settings
       SERVER_IMAGE_HOST: http://YOUR_SERVE_IP:MCP_PORT/images/
       # Auth & Security
