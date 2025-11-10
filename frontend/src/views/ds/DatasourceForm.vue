@@ -871,7 +871,7 @@ defineExpose({
             <el-input
               v-model="form.p_date_m"
               clearable
-              placeholder="例如: 2025-03"
+              placeholder="例如: 202503"
             />
           </el-form-item>
           

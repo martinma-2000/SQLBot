@@ -218,7 +218,7 @@ async def _exec_fetch_api_job(app: FastAPI, conf: dict):
 
             # Last day of target month
             last_day = calendar.monthrange(y, m)[1]
-            p_date_m_auto = f"{y:04d}-{m:02d}"
+            p_date_m_auto = f"{y:04d}{m:02d}"
             date_m_auto = f"{y:04d}-{m:02d}-{last_day:02d}"
             period_auto = f"{y:04d}{m:02d}"
             p_date_m = p_date_m or p_date_m_auto
