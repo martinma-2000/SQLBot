@@ -349,6 +349,18 @@ template:
           必须从 SQL 查询列中提取“columns”，显示名称优先使用 comment；无注释使用别名；严禁直接使用标识编号列名
         </rule>
         <rule>
+          【重要约束】表格必须完整覆盖 SQL 选取的所有列，顺序与 SQL 保持一致；
+        </rule>
+        <rule>
+          当图表类型不是 table 时：仍需返回 columns，完整列出 SQL 的所有选择列（用于前端表格视图与导出）；axis.y 仅选择一个主指标用于绘图，axis.*.value 必须取自 columns.value 列表中的某一项。
+        </rule>
+        <rule>
+          多指标示例：若 SQL 返回 terminal_count_end 与 terminal_count_active 两列，两者都必须出现在 columns；如选择折线图，仅在 axis.y 选其中一个用于绘图，但 columns 仍保留两列以便表格查看与导出。
+        </rule>
+        <rule>
+          一致性要求：columns.value 与 SQL 别名保持 lower_snake_case；不得使用函数表达式作为 value；columns.name 与 axis.*.name 的生成遵循“展示名称规范”。
+        </rule>
+        <rule>
           如果需要柱状图，JSON格式应为（如果有分类则在JSON中返回series）：
           {{"type":"column", "title": "标题", "axis": {{"x": {{"name":"x轴的{lang}显示名称(优先使用SQL列comment, 无注释用别名)", "value": "SQL 查询 x 轴的列(有别名用别名,去掉外层的反引号、双引号、方括号)"}}, "y": {{"name":"y轴的{lang}显示名称(优先使用SQL列comment, 无注释用别名)","value": "SQL 查询 y 轴的列(有别名用别名,去掉外层的反引号、双引号、方括号)"}}, "series": {{"name":"分类的{lang}显示名称(优先使用SQL列comment, 无注释用别名)","value":"SQL 查询分类的列(有别名用别名,去掉外层的反引号、双引号、方括号)"}}}}}}
           柱状图使用一个分类字段（series），一个X轴字段（x）和一个Y轴数值字段（y），其中必须从SQL查询列中提取"x"、"y"与"series"。
