@@ -32,4 +32,4 @@ nohup node $SSR_PATH/app.js &
 nohup python -m uvicorn main:mcp_app --host 0.0.0.0 --port 8001 &
 
 cd $APP_PATH
-python -m uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1 --proxy-headers
+python -m uvicorn main:app --host 0.0.0.0 --port 8010 --workers 1 --proxy-headers

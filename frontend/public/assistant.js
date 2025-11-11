@@ -501,7 +501,7 @@
     const userFlag = getParam(src, 'userFlag')
     let url = `${domain_url}/api/v1/system/assistant/info/${id}`
     if (domain_url.includes('5173')) {
-      url = url.replace('5173', '8000')
+      url = url.replace('5173', '8010')
     }
     fetch(url)
       .then((response) => response.json())
@@ -530,7 +530,7 @@
             `${domain_url}/api/v1/system/assistant/picture/${tempData['float_icon']}`
 
           if (domain_url.includes('5173')) {
-            tempData['float_icon'] = tempData['float_icon'].replace('5173', '8000')
+            tempData['float_icon'] = tempData['float_icon'].replace('5173', '8010')
           }
         }
 
