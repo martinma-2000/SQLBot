@@ -128,6 +128,9 @@ def merge_dataframes_horizontally(dataframes: List[pd.DataFrame], time_col: int 
                 
                 result[new_col_name] = df[col]
                 
+        # 添加去重处理，基于所有列进行去重
+        result = result.drop_duplicates()
+                
     except Exception as e:
         raise ValueError(f"横向拼接过程中发生错误: {str(e)}")
     
