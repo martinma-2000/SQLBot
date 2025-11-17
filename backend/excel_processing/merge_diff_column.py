@@ -3,6 +3,7 @@
 """
 import pandas as pd
 from typing import List
+from excel_processing.excel_extract import ExcelHeaderProcessor
 
 def find_org_differences(reference_col, current_col):
     """
@@ -44,6 +45,13 @@ def merge_dataframes_horizontally(dataframes: List[pd.DataFrame], time_col: int 
     """
     if not dataframes:
         raise ValueError("输入的DataFrame列表不能为空")
+
+    # 统一清理每个 DataFrame 的尾部无效行
+    try:
+        processor = ExcelHeaderProcessor(separator="_")
+        dataframes = [processor.remove_tail_rows(df) for df in dataframes]
+    except Exception as e:
+        raise ValueError(f"清理尾部无效行时发生错误: {str(e)}")
     
     # 检查时间列索引是否有效
     if time_col >= len(dataframes[0].columns):
@@ -159,12 +167,3 @@ def merge_excel_files_horizontally(file_paths: List[str], time_col: int = 0, she
         dataframes.append(df)
     
     return merge_dataframes_horizontally(dataframes, time_col)
-
-
-if __name__ == "__main__":
-    # 示例用法
-
-    df1 = pd.read_excel(r"D:\文档-陕农信\测试文件示例\27000099_202509_元_银行卡业务月度运营报表_单极表头少机构.xlsx")
-    df2 = pd.read_excel(r"D:\文档-陕农信\测试文件示例\银行卡发卡统计表_单极表头.xlsx")
-    result = merge_dataframes_horizontally([df1, df2], time_col=0)
-    result.to_excel(r"D:\文档-陕农信\测试文件示例\横向合并.xlsx", index=False)

@@ -1,6 +1,5 @@
 import pandas as pd
 import re
-from excel_processing.merge_diff_time import concatenate_dataframes
 
 
 class ExcelHeaderProcessor:
@@ -152,7 +151,6 @@ class ExcelHeaderProcessor:
         # 如果未指定表头行数，则自动检测
         if header_rows is None:
             header_rows = self.detect_header_rows(file_path, sheet_name)
-            print(f"检测到表头行数: {header_rows}")
         
         # 如果检测到的表头行数为0，则至少保留1行作为表头
         if header_rows == 0:
@@ -206,8 +204,8 @@ class ExcelHeaderProcessor:
         df.columns = single_columns
 
         excel_name, _time = self.get_name_time(file_path)
-        if len(df) > 2:
-            df = df.iloc[:-2]  # 删除最后两行
+        # 删除尾部无效行的改进逻辑
+        df = self.remove_tail_rows(df)
         df['表格日期_source'] = self.parse_chinese_date(_time)
 
         def standardize_date_format(date_period):
@@ -229,9 +227,123 @@ class ExcelHeaderProcessor:
                 return None
 
         df['表格日期'] = df['表格日期_source'].apply(standardize_date_format)
-        # 查看具体的值
-        print(repr(df['表格日期'].iloc[0]))
         return df
+
+    def remove_tail_rows(self, df):
+        """
+        改进的删除尾部无效行的方法
+        删除尾部说明性文字/空行等非数据内容；以最后一条“数据行”为界
+        """
+        if len(df) <= 1:
+            return df
+            
+        # 从底部开始查找，找到最后一个有效数据行
+        last_valid_index = len(df) - 1
+        
+        # 从最后一行开始向上遍历
+        for i in range(len(df) - 1, -1, -1):
+            row = df.iloc[i]
+            # 如果空行或说明性文字行，跳过
+            if row.isnull().all() or (row.astype(str).str.strip() == '').all() or self._is_explanatory_text(row):
+                continue
+            # 非空但不是数据行（几乎没有数值），也跳过
+            if not self._is_data_row(row):
+                continue
+            # 找到最后一个数据行
+            last_valid_index = i
+            break
+        
+        # 检查有效数据行之后的连续无效行
+        # 包括空行和包含说明性文字的行
+        invalid_rows = []
+        for i in range(last_valid_index + 1, len(df)):
+            row = df.iloc[i]
+            # 检查该行是否为空行或包含说明性文字
+            if row.isnull().all() or (row.astype(str).str.strip() == '').all():
+                invalid_rows.append(i)
+            elif self._is_explanatory_text(row):
+                invalid_rows.append(i)
+            else:
+                # 遇到新的有效数据行，停止检查
+                break
+        
+        # 如果存在无效行，则删除它们
+        if invalid_rows:
+            # 截取到last_valid_index这一行（包含）
+            df = df.iloc[:last_valid_index + 1]
+        
+        return df
+
+    def _is_explanatory_text(self, row):
+        """
+        判断一行是否包含说明性文字
+        通常包含计算公式、指标说明等非数据内容
+        """
+        # 将行转换为字符串列表
+        row_strs = row.astype(str).str.strip()
+        
+        # 常见的说明性文字关键词
+        explanatory_keywords = [
+            '计算公式', '参见', '指标', '说明', '备注', '注释', '公式', '方法',
+            '日均增量', '净增', '占比', '合计', '统计', '时点', '余额', '行长', '主任'
+        ]
+        
+        # 检查行中是否包含任何说明性关键词
+        for cell in row_strs:
+            if any(keyword in cell for keyword in explanatory_keywords):
+                return True
+        
+        # 特殊情况：包含序号的行（如"1. 日均增量="）
+        if len(row_strs) == 1:
+            # 检查是否以数字+点号开头
+            if re.match(r'^\d+\.', row_strs[0]):
+                return True
+            
+            # 检查是否包含计算公式格式
+            if '=' in row_strs[0] and any(keyword in row_strs[0] for keyword in ['计算', '公式', '增量']):
+                return True
+        
+        # 如果行中只有一个单元格且包含数字和文本混合的内容，可能是说明性文字
+        if len(row_strs) == 1 and not row_strs[0].isdigit():
+            # 检查是否包含数字和文本混合的内容
+            if any(c.isdigit() for c in row_strs[0]) and any(c.isalpha() for c in row_strs[0]):
+                return True
+        
+        return False
+
+    def _is_number_like(self, s):
+        """判断字符串是否是数值样式（含逗号、百分号等）"""
+        try:
+            if s is None:
+                return False
+            if isinstance(s, (int, float)):
+                return True
+            s = str(s).strip()
+            if s == "":
+                return False
+            # 移除常见修饰后尝试转换
+            cleaned = s.replace(',', '').replace('%', '')
+            # 处理中文千分位或空格
+            cleaned = cleaned.replace('，', '')
+            float(cleaned)
+            return True
+        except:
+            return False
+
+    def _is_data_row(self, row, min_numeric_ratio: float = 0.4):
+        """根据数值占比判断是否为数据行"""
+        values = list(row.values)
+        total = len(values)
+        if total == 0:
+            return False
+        numeric_count = 0
+        for v in values:
+            if self._is_number_like(v):
+                numeric_count += 1
+        # 若存在明显的数值（至少1个）且数值占比达到阈值，则认为是数据行
+        if numeric_count == 0:
+            return False
+        return (numeric_count / total) >= min_numeric_ratio
 
     def parse_chinese_date(self, date_str):
         try:
@@ -247,33 +359,4 @@ class ExcelHeaderProcessor:
         except Exception as e:
             print(f"无法解析日期字符串: {date_str}, 错误: {e}")
             return pd.NaT  # 返回 Not a Time 表示无效时间
-
-
-
-
-# 使用示例
-if __name__ == "__main__":
-    excel_file = r"D:\文档-陕农信\测试文件示例\27000099_202509_银行卡发卡统计表9 (2).xlsx"
-    
-    try:
-        # 创建处理器实例
-        processor = ExcelHeaderProcessor(separator="_")
-
-        excel_name,_time = processor.get_name_time(excel_file)
-
-        # 处理Excel文件
-        df = processor.convert_multi_to_single_header(excel_file, header_rows=None)
-        if len(df) > 2:
-            df = df.iloc[:-2]  # 删除最后两行
-
-        df['表格日期'] = processor.parse_chinese_date(_time)
-
-
-        df.to_excel(excel_name+"_单极表头.xlsx", index=False)
-        print(excel_name+"_单极表头.xlsx")
-        
-    except Exception as e:
-        print(f"处理文件时出错: {e}")
-        import traceback
-        traceback.print_exc()
 
