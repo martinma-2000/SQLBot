@@ -1,5 +1,6 @@
 import pandas as pd
 import re
+from io import BytesIO
 
 
 class ExcelHeaderProcessor:
@@ -223,6 +224,114 @@ class ExcelHeaderProcessor:
                 else:
                     # 其他频率，转换为 timestamp
                     return date_period.to_timestamp().date()
+            except:
+                return None
+
+        df['表格日期'] = df['表格日期_source'].apply(standardize_date_format)
+        return df
+
+    # --------------------
+    # File-like / Bytes support (无需落地文件)
+    # --------------------
+    def get_name_time_filelike(self, file_like, sheet_name=0):
+        """从内存文件对象读取前两行，提取表名与时间。"""
+        if hasattr(file_like, 'seek'):
+            file_like.seek(0)
+        df = pd.read_excel(file_like, nrows=1, sheet_name=sheet_name)
+        excel_name = [col for col in df.columns if not col.startswith('Unnamed')]
+        excel_time = [data for data in df.values[0] if pd.notna(data) and '日期' in data]
+        excel_time_val = excel_time[0].split('：')[-1] if excel_time else ''
+        return (excel_name[0] if excel_name else ''), excel_time_val
+
+    def detect_header_rows_filelike(self, file_like, sheet_name=0):
+        """自动检测表头行数（内存文件对象）。"""
+        if hasattr(file_like, 'seek'):
+            file_like.seek(0)
+        df_preview = pd.read_excel(file_like, nrows=10, header=None, sheet_name=sheet_name, skiprows=[0, 1])
+        header_rows = 1
+        for index in range(1, len(df_preview)):
+            row = df_preview.iloc[index]
+            first_column_value = row.iloc[0]
+            if pd.notna(first_column_value):
+                header_rows = index
+                break
+        else:
+            header_rows = min(3, len(df_preview))
+        return header_rows
+
+    def convert_multi_to_single_header_filelike(self, file_bytes: bytes | BytesIO, header_rows=None, sheet_name=0):
+        """
+        将多级表头Excel（字节或文件对象）转换为单级表头。
+
+        参数:
+        file_bytes: Excel字节内容或BytesIO对象
+        header_rows: 表头行数，None则自动检测
+        sheet_name: 工作表名称或索引
+
+        返回:
+        DataFrame
+        """
+        file_like = file_bytes if hasattr(file_bytes, 'read') else BytesIO(file_bytes)
+
+        # 检测表头行数
+        if header_rows is None:
+            header_rows = self.detect_header_rows_filelike(file_like, sheet_name)
+        if header_rows == 0:
+            header_rows = 1
+        adjusted_header_rows = [i + 2 for i in range(header_rows)]
+
+        # 读取表头部分
+        if hasattr(file_like, 'seek'):
+            file_like.seek(0)
+        header_df = pd.read_excel(file_like, header=adjusted_header_rows, sheet_name=sheet_name)
+        multi_columns = header_df.columns
+
+        single_columns = []
+        for col in multi_columns:
+            parts = []
+            for level in col:
+                if pd.notna(level):
+                    cleaned_level = self._clean_column_name(level)
+                    if cleaned_level:
+                        parts.append(cleaned_level)
+            meaningful_parts = [part for part in parts if self._is_meaningful_part(part)]
+            if not meaningful_parts:
+                single_columns.append(f"column_{len(single_columns)}")
+            else:
+                column_name = self.separator.join(meaningful_parts)
+                column_name = re.sub(f'{re.escape(self.separator)}+', self.separator, column_name)
+                column_name = column_name.strip(self.separator)
+                if not column_name or not self._is_meaningful_part(column_name):
+                    single_columns.append(f"column_{len(single_columns)}")
+                else:
+                    single_columns.append(column_name)
+
+        # 重新读取整个Excel
+        if hasattr(file_like, 'seek'):
+            file_like.seek(0)
+        df = pd.read_excel(file_like, header=list(range(header_rows)), sheet_name=sheet_name, skiprows=[0, 1])
+        df.columns = single_columns
+
+        # 获取表名与时间
+        if hasattr(file_like, 'seek'):
+            file_like.seek(0)
+        excel_name, _time = self.get_name_time_filelike(file_like, sheet_name)
+
+        # 清理尾部无效行与解析时间
+        df = self.remove_tail_rows(df)
+        df['表格日期_source'] = self.parse_chinese_date(_time) if _time else pd.NaT
+
+        def standardize_date_format(date_period):
+            """将 Period 对象转换为标准日期格式"""
+            if pd.isna(date_period):
+                return None
+            try:
+                if getattr(date_period, 'freq', None) and date_period.freq.name in ['M', 'ME']:
+                    return date_period.to_timestamp(how='end').date()
+                elif getattr(date_period, 'freq', None) and date_period.freq.name in ['D', 'DE']:
+                    return date_period.to_timestamp().date()
+                else:
+                    return date_period.to_timestamp().date() if hasattr(date_period, 'to_timestamp') else None
             except:
                 return None
 
