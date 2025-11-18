@@ -5,6 +5,7 @@ import datetime
 import json
 from typing import Dict, Optional
 from excel_processing.excel_extract import ExcelHeaderProcessor
+from excel_processing.enrich_city_from_org import enrich_city_column
 from sqlalchemy import create_engine, inspect
 
 # 优先加载根目录与 backend 下的 .env，以支持直接运行脚本场景
@@ -89,11 +90,11 @@ def insert_df_to_db(df: pd.DataFrame,
     """
     将DataFrame入库，数据库配置可通过参数或环境变量配置。
 
-    环境变量（备选）:
-    - DB_URL: 完整连接串，例如 postgres://... 或 mysql+pymysql://...
-    - DB_TABLE_NAME: 目标表名
-    - DB_SCHEMA: 目标schema（可选）
-    - DB_IF_EXISTS: 'append' 或 'replace'
+    环境变量（仅 BI_*）:
+    - BI_DB_URL: 完整连接串，例如 postgres://... 或 mysql+pymysql://...
+    - BI_TABLE_NAME: 目标表名（未设置时默认 'bi_excel_processed'）
+    - BI_SCHEMA: 目标 schema（可选）
+    - BI_IF_EXISTS: 'append' 或 'replace'
     去重、标准化与合并配置:
     - BI_DEDUP_KEYS: 逗号分隔的去重键，如 "机构,date_m"
     - BI_DEDUP_WITH_DB: 是否在数据库层面去重（true/false），默认 true
@@ -108,16 +109,10 @@ def insert_df_to_db(df: pd.DataFrame,
     """
     try:
         # 优先读取 BI 专用环境变量，避免影响系统库
-        db_url = (
-            db_url
-            or os.getenv('BI_DB_URL')
-            or os.getenv('SQLBOT_EXCEL_DB_URL')
-            or os.getenv('DB_URL')
-            or os.getenv('SQLBOT_DB_URL')
-        )
-        table_name = table_name or os.getenv('BI_TABLE_NAME') or os.getenv('DB_TABLE_NAME')
-        schema = schema or os.getenv('BI_SCHEMA') or os.getenv('DB_SCHEMA')
-        if_exists = os.getenv('BI_IF_EXISTS', os.getenv('DB_IF_EXISTS', if_exists)) or if_exists
+        db_url = db_url or os.getenv('BI_DB_URL')
+        table_name = table_name or os.getenv('BI_TABLE_NAME') or 'bi_excel_processed'
+        schema = schema or os.getenv('BI_SCHEMA')
+        if_exists = os.getenv('BI_IF_EXISTS', if_exists) or if_exists
         # 去重配置：支持环境变量 BI_DEDUP_KEYS（逗号分隔）与 BI_DEDUP_WITH_DB（true/false）
         if dedup_keys is None:
             _dedup_env = os.getenv('BI_DEDUP_KEYS')
@@ -135,12 +130,12 @@ def insert_df_to_db(df: pd.DataFrame,
         if upsert_create_unique is None:
             upsert_create_unique = (os.getenv('BI_UPSERT_CREATE_UNIQUE', 'true').lower() in ('1', 'true', 'yes', 'y'))
 
-        # 严格分离：不再从系统 POSTGRES_* 环境变量拼接 BI 连接串，避免误写入系统库
+        # 严格分离：仅使用 BI_* 环境变量，避免误写入系统库
 
         if not db_url:
-            raise ValueError("缺少数据库连接字符串: 请传入 db_url 或设置环境变量 BI_DB_URL/SQLBOT_EXCEL_DB_URL/DB_URL/SQLBOT_DB_URL")
+            raise ValueError("缺少数据库连接字符串: 请传入 db_url 或设置环境变量 BI_DB_URL")
         if not table_name:
-            raise ValueError("缺少目标表名: 请传入 table_name 或设置环境变量 DB_TABLE_NAME")
+            raise ValueError("缺少目标表名: 请传入 table_name 或设置环境变量 BI_TABLE_NAME")
 
         engine = create_engine(db_url)
 
@@ -323,7 +318,9 @@ def insert_df_to_db(df: pd.DataFrame,
                         print(f"! 数据库去重失败，继续入库: {e}")
         except Exception as e:
             print(f"! 数据库去重过程异常，继续入库: {e}")
-        # 列位置保障：在完成去重校验后，删除旧时间列并在末尾重建（PostgreSQL）
+        # 列位置保障（PostgreSQL）：保留原数据并调整列顺序
+        # 方案：为目标列创建末尾临时列，复制数据 -> 删除旧列 -> 将临时列重命名为原列名
+        # 好处：不丢失已有数据，且列位置移动到末尾，最终顺序固定为 [.., 地市, 表格日期_source, 表格日期]
         try:
             if db_url and db_url.startswith('postgresql'):
                 insp = inspect(engine)
@@ -333,20 +330,30 @@ def insert_df_to_db(df: pd.DataFrame,
                 except Exception:
                     _cols = []
                 _existing_names = {c['name'] for c in _cols}
-                _time_cols_df = [c for c in ['表格日期_source', '表格日期'] if c in df.columns]
-                _to_drop = [c for c in _time_cols_df if c in _existing_names]
-                if _to_drop:
-                    with engine.begin() as conn:
-                        for c in _to_drop:
-                            conn.exec_driver_sql(f'ALTER TABLE {quoted_table} DROP COLUMN "{c}";')
-                    print(f"√ 已删除旧时间列: {_to_drop}")
-                # 在表末尾重建新时间列（TEXT），后续写入会填充新值
-                _to_add = _time_cols_df
-                if _to_add:
-                    with engine.begin() as conn:
-                        for c in _to_add:
-                            conn.exec_driver_sql(f'ALTER TABLE {quoted_table} ADD COLUMN "{c}" TEXT;')
-                    print(f"√ 已在末尾重建时间列: {_to_add}")
+                def _rebuild_preserve(col_name: str):
+                    tmp_name = f"__tmp__{col_name}"
+                    try:
+                        with engine.begin() as conn:
+                            # 清理可能存在的临时列
+                            conn.exec_driver_sql(f'ALTER TABLE {quoted_table} DROP COLUMN IF EXISTS "{tmp_name}";')
+                            # 在末尾创建临时列
+                            conn.exec_driver_sql(f'ALTER TABLE {quoted_table} ADD COLUMN "{tmp_name}" TEXT;')
+                            # 若原列存在，复制数据并删除原列
+                            if col_name in _existing_names:
+                                conn.exec_driver_sql(f'UPDATE {quoted_table} SET "{tmp_name}" = "{col_name}";')
+                                conn.exec_driver_sql(f'ALTER TABLE {quoted_table} DROP COLUMN "{col_name}";')
+                            # 临时列重命名为原列名（位置保留在末尾）
+                            conn.exec_driver_sql(f'ALTER TABLE {quoted_table} RENAME COLUMN "{tmp_name}" TO "{col_name}";')
+                        print(f"√ 已保留数据并将列置于末尾: {col_name}")
+                    except Exception as e:
+                        print(f"! 列重建失败（保留数据）：{col_name}: {e}")
+
+                # 处理“地市”列（若当前 DataFrame 包含该列）
+                if '地市' in df.columns:
+                    _rebuild_preserve('地市')
+                # 处理时间列（若当前 DataFrame 包含这些列）
+                for _tcol in [c for c in ['表格日期_source', '表格日期'] if c in df.columns]:
+                    _rebuild_preserve(_tcol)
         except Exception as e:
             print(f"! 删除并重建时间列过程异常，继续入库: {e}")
         # PostgreSQL Upsert：合并 B/C 指标到同一行（按组合键）
@@ -421,44 +428,83 @@ def insert_df_to_db(df: pd.DataFrame,
         return False
 
 
-if __name__ == "__main__":
-    # 示例参数，可自由扩展/变更键值
-    params = {
-        "date_m": "2025-03-31",
-        "p_date_m": "202503"
-        # 可继续添加其他参数，如 "biz": "retail"
-    }
-    # 支持定时任务通过环境变量覆盖 URL
-    url = os.getenv('JOB_URL') or 'http://127.0.0.1:8030/download_excel'
+def run_bi_excel_batch(base: str, file_ids: list[str], params: Optional[Dict] = None) -> Dict:
+    """
+    批量下载 API Excel 并入库数据库（同步执行）。
 
-    excel_bytes = download_excel_to_bytes(url=url, params=params)
-    if not excel_bytes:
-        print("文件下载失败")
-    else:
-        df = process_excel_bytes(excel_bytes)
-        if df is None:
-            print("文件处理失败")
-        else:
-            # 入库配置可传参或通过环境变量：DB_URL/DB_TABLE_NAME/DB_SCHEMA/DB_IF_EXISTS
+    - base: 接口基础 URL（例如 http://host:port/download_excel）
+    - file_ids: 机构/文件ID 列表，将作为参数 p_org_id 传入
+    - params: 额外参数字典，默认包含 p_unit=1；若未提供 date_m 则取当天
+
+    返回执行统计：{"successes":n, "failures":m, "total":t}
+    """
+    if not base:
+        raise ValueError("缺少下载接口前缀: 请设置 base")
+    base = base.rstrip('/')
+    params = dict(params or {})
+    params.setdefault("p_unit", 1)
+    params.setdefault("date_m", datetime.date.today().strftime("%Y-%m-%d"))
+    successes = 0
+    failures = 0
+    if not file_ids:
+        print("未配置 file_id 列表，已跳过批量处理。")
+        return {"successes": successes, "failures": failures, "total": 0}
+    print(f"开始批量下载与入库，共 {len(file_ids)} 个 file_id: {file_ids}")
+    for fid in file_ids:
+        url = base
+        try:
+            per_params = dict(params or {})
+            per_params["p_org_id"] = str(fid)
+            excel_bytes = download_excel_to_bytes(url=url, params=per_params)
+            if not excel_bytes:
+                print(f"× 下载失败: file_id={fid}")
+                failures += 1
+                continue
+            df = process_excel_bytes(excel_bytes)
+            if df is None:
+                print(f"× 处理失败: file_id={fid}")
+                failures += 1
+                continue
+            try:
+                df = enrich_city_column(df)
+            except Exception as e:
+                print(f"! 填充地市列失败（继续入库）: file_id={fid}, err={e}")
             ok = insert_df_to_db(
                 df=df,
-                db_url=(
-                    os.getenv('BI_DB_URL')
-                    or os.getenv('SQLBOT_EXCEL_DB_URL')
-                    or os.getenv('DB_URL')
-                    or os.getenv('SQLBOT_DB_URL')
-                ),
-                # 优先 BI_TABLE_NAME；退回 JOB_TABLE_NAME/DB_TABLE_NAME；默认 bi_excel_processed
-                table_name=(
-                    os.getenv('BI_TABLE_NAME')
-                    or os.getenv('JOB_TABLE_NAME')
-                    or os.getenv('DB_TABLE_NAME')
-                    or 'bi_excel_processed'
-                ),
-                schema=os.getenv('BI_SCHEMA') or os.getenv('DB_SCHEMA'),
-                if_exists=os.getenv('BI_IF_EXISTS', os.getenv('DB_IF_EXISTS', 'append'))
+                db_url=os.getenv('BI_DB_URL'),
+                table_name=os.getenv('BI_TABLE_NAME'),
+                schema=os.getenv('BI_SCHEMA'),
+                if_exists=os.getenv('BI_IF_EXISTS', 'append')
             )
             if ok:
-                print("文件处理并入库完成")
+                successes += 1
+                print(f"√ 入库成功: file_id={fid}")
             else:
-                print("入库失败")
+                failures += 1
+                print(f"× 入库失败: file_id={fid}")
+        except Exception as e:
+            failures += 1
+            print(f"× 执行失败: file_id={fid}, err={e}")
+    print(f"批量任务完成：成功 {successes}，失败 {failures}，总计 {len(file_ids)}")
+    return {"successes": successes, "failures": failures, "total": len(file_ids)}
+
+
+if __name__ == "__main__":
+    # 环境变量驱动的示例运行，便于本地测试
+    params = {
+        "date_m": os.getenv("JOB_DATE_M") or os.getenv("BI_DATE_M") or datetime.date.today().strftime("%Y-%m-%d"),
+        "p_unit": 1,
+    }
+    ids_env = os.getenv('JOB_FILE_IDS') or os.getenv('BI_FILE_IDS') or ''
+    file_ids: list[str] = []
+    if ids_env:
+        try:
+            parsed = json.loads(ids_env)
+            if isinstance(parsed, list):
+                file_ids = [str(x).strip() for x in parsed if str(x).strip()]
+        except Exception:
+            file_ids = [x.strip() for x in ids_env.split(',') if x.strip()]
+    base = os.getenv('JOB_URL_BASE') or os.getenv('JOB_URL')
+    if not base:
+        raise ValueError("缺少下载接口前缀: 请设置 JOB_URL_BASE 或 JOB_URL")
+    run_bi_excel_batch(base=base, file_ids=file_ids, params=params)

@@ -16,6 +16,7 @@ from common.utils.utils import SQLBotLogUtil
 from common.core.config import settings
 import json
 from apps.datasource.api.datasource import FetchApiRequest, fetch_excel_from_api
+from excel_processing.get_bi_excel_process import run_bi_excel_batch
 
 
 def _log_tick(app: FastAPI | None = None, source: str | None = None):
@@ -265,6 +266,105 @@ async def _exec_fetch_api_job(app: FastAPI, conf: dict):
         SQLBotLogUtil.error(f"[APS] API fetch job error: {e}")
 
 
+async def _exec_bi_excel_job(app: FastAPI, conf: dict):
+    """Execute BI Excel batch ingestion using excel_processing.get_bi_excel_process.
+
+    Conf keys:
+    - type: "bi_excel" | "bi_excel_process" (selector)
+    - endpoint/base/url: API endpoint to download Excel
+    - file_ids/org_ids: list of IDs used as p_org_id
+    - period_type: default "month"; supports month_offset and explicit period (YYYY-MM/ YYYYMM / YYYY-MM-DD)
+    - p_unit: default 1
+    """
+    try:
+        tz = ZoneInfo("Asia/Shanghai")
+        period_type = (conf.get("period_type") or "month").lower()
+        p_date_m = conf.get("p_date_m")
+        date_m = conf.get("date_m")
+        period = conf.get("period")
+        if period_type == "month" and (p_date_m is None or date_m is None):
+            now = datetime.now(tz)
+            month_offset = int(conf.get("month_offset", -1))
+            y, m = None, None
+            if isinstance(period, str) and period:
+                try:
+                    s = period.strip()
+                    if len(s) == 7 and s[4] == "-":
+                        y, m = int(s[:4]), int(s[5:7])
+                    elif len(s) == 6 and s.isdigit():
+                        y, m = int(s[:4]), int(s[4:6])
+                    elif len(s) == 10 and s[4] == "-" and s[7] == "-":
+                        y, m = int(s[:4]), int(s[5:7])
+                except Exception:
+                    y, m = None, None
+            if y is None or m is None:
+                target_month = (now.year * 12 + now.month - 1) + month_offset
+                y = target_month // 12
+                m = target_month % 12 + 1
+            last_day = calendar.monthrange(y, m)[1]
+            p_date_m = f"{y:04d}-{m:02d}"
+            date_m = f"{y:04d}-{m:02d}-{last_day:02d}"
+        elif period_type == "day" and (date_m is None):
+            # 日报表：默认跑前一天的数据，避免当天数据未生成
+            now = datetime.now(tz)
+            day_offset = int(conf.get("day_offset", -1))
+            target_date = (now + timedelta(days=day_offset)).date()
+            # 若提供 period 为 YYYY-MM-DD，则直接使用
+            if isinstance(period, str) and period:
+                try:
+                    s = period.strip()
+                    if len(s) == 10 and s[4] == "-" and s[7] == "-":
+                        y, m, d = int(s[:4]), int(s[5:7]), int(s[8:10])
+                        target_date = date(y, m, d)
+                except Exception:
+                    pass
+            date_m = target_date.strftime('%Y-%m-%d')
+        # 允许通过环境变量覆盖日报的 date_m，用于历史数据补跑
+        if (period_type == "day"):
+            override_dm = os.getenv('JOB_DATE_M') or os.getenv('BI_DATE_M')
+            if override_dm:
+                try:
+                    if len(override_dm) == 10 and override_dm[4] == '-' and override_dm[7] == '-':
+                        y, m, d = int(override_dm[:4]), int(override_dm[5:7]), int(override_dm[8:10])
+                        date_m = f"{y:04d}-{m:02d}-{d:02d}"
+                except Exception:
+                    pass
+
+        # Resolve endpoint and file ids
+        endpoint = conf.get("endpoint") or conf.get("base") or conf.get("url")
+        file_ids = conf.get("file_ids") or conf.get("org_ids")
+        if not file_ids:
+            # Fallback to environment
+            ids_env = os.getenv('JOB_FILE_IDS') or os.getenv('BI_FILE_IDS') or ''
+            if ids_env:
+                try:
+                    parsed = json.loads(ids_env)
+                    if isinstance(parsed, list):
+                        file_ids = [str(x).strip() for x in parsed if str(x).strip()]
+                except Exception:
+                    file_ids = [x.strip() for x in ids_env.split(',') if x.strip()]
+        # Params for each request
+        params = {
+            "p_unit": int(conf.get("p_unit", 1)),
+            "date_m": date_m or (datetime.now(tz).date().strftime('%Y-%m-%d')),
+        }
+        # Execute batch (sync function inside async context)
+        result = run_bi_excel_batch(base=endpoint, file_ids=file_ids or [], params=params)
+
+        # Record event
+        events = getattr(app.state, "scheduler_events", None)
+        if events is not None:
+            ts = datetime.now(tz)
+            events.append({
+                "ts": ts.isoformat(),
+                "source": conf.get("id", "bi_excel"),
+                "message": f"ingested {result.get('total', 0)} ids, success {result.get('successes', 0)}",
+            })
+        SQLBotLogUtil.info(f"[APS] BI Excel job '{conf.get('id')}' executed")
+    except Exception as e:
+        SQLBotLogUtil.error(f"[APS] BI Excel job error: {e}")
+
+
 def register_api_fetch_jobs(app: FastAPI) -> None:
     """Register ingestion jobs defined via settings.API_FETCH_JOBS (JSON)."""
     raw = settings.API_FETCH_JOBS
@@ -300,8 +400,13 @@ def register_api_fetch_jobs(app: FastAPI) -> None:
             else:
                 raise ValueError("job must define 'cron' or 'interval_minutes'")
 
+            # Select executor based on job type
+            executor = _exec_fetch_api_job
+            jtype = (job.get("type") or "").lower()
+            if jtype in ("bi_excel", "bi_excel_process"):
+                executor = _exec_bi_excel_job
             scheduler.add_job(
-                _exec_fetch_api_job,
+                executor,
                 trigger=trigger,
                 id=job_id,
                 replace_existing=True,
