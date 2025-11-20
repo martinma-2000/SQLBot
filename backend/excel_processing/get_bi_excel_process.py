@@ -101,7 +101,7 @@ def insert_df_to_db(df: pd.DataFrame,
     - BI_ORG_COLUMN: 机构列名，默认智能检测：优先 "机构名称"，其次 "机构"，再环境变量
     - BI_ORG_ALIASES_JSON: JSON 字典，别名到规范名映射 {"别名":"规范名"}
     - BI_ORG_ALIASES_PATH: CSV 路径，包含两列 alias,canonical
-    - BI_TIME_COLUMN: 时间列名（可选），默认智能检测：优先 "表格时期"，其次 "date_m"；若为日期/时间类型将统一格式为 YYYY-MM-DD
+    - BI_TIME_COLUMN: 时间列名（可选），默认智能检测：优先 "表格日期"，其次 "date_m"；若为日期/时间类型将统一格式为 YYYY-MM-DD
     合并（Upsert）配置：
     - BI_UPSERT_ENABLED: 是否启用合并（true/false），默认 true（仅 PostgreSQL 支持）
     - BI_UPSERT_KEYS: 逗号分隔的合并键，默认使用 [机构列,时间列]
@@ -371,7 +371,7 @@ def insert_df_to_db(df: pd.DataFrame,
                         org_col2 = None
                     try:
                         _time_env = os.getenv('BI_TIME_COLUMN')
-                        _time_candidates = [_time_env, '表格时期', 'date_m']
+                        _time_candidates = [_time_env, '表格日期', 'date_m']
                         time_col2 = next((c for c in _time_candidates if c and c in df.columns), None)
                     except Exception:
                         time_col2 = None

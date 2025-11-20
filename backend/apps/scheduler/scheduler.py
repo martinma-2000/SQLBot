@@ -302,7 +302,12 @@ async def _exec_bi_excel_job(app: FastAPI, conf: dict):
                 y = target_month // 12
                 m = target_month % 12 + 1
             last_day = calendar.monthrange(y, m)[1]
-            p_date_m = f"{y:04d}-{m:02d}"
+            # 支持配置月参数格式：紧凑(YYYYMM) 或 带连字符(YYYY-MM)
+            p_date_m_fmt = (conf.get("p_date_m_format") or "compact").lower()
+            if p_date_m_fmt in ("compact", "yyyymm"):
+                p_date_m = f"{y:04d}{m:02d}"
+            else:
+                p_date_m = f"{y:04d}-{m:02d}"
             date_m = f"{y:04d}-{m:02d}-{last_day:02d}"
         elif period_type == "day" and (date_m is None):
             # 日报表：默认跑前一天的数据，避免当天数据未生成
@@ -343,11 +348,45 @@ async def _exec_bi_excel_job(app: FastAPI, conf: dict):
                         file_ids = [str(x).strip() for x in parsed if str(x).strip()]
                 except Exception:
                     file_ids = [x.strip() for x in ids_env.split(',') if x.strip()]
-        # Params for each request
+        # Params for each request: include optional p_date_m / p_date 根据模式控制
         params = {
             "p_unit": int(conf.get("p_unit", 1)),
-            "date_m": date_m or (datetime.now(tz).date().strftime('%Y-%m-%d')),
         }
+        only_p_date = bool(conf.get("only_p_date"))
+        include_date_m = not only_p_date
+
+        # date_m 注入：除非显式要求仅传 p_date
+        if include_date_m:
+            if date_m:
+                params["date_m"] = date_m
+            else:
+                params["date_m"] = datetime.now(tz).date().strftime('%Y-%m-%d')
+
+        # 月任务：通常需要 p_date_m；允许显式覆盖
+        if p_date_m:
+            params["p_date_m"] = p_date_m
+
+        # 日任务：若未提供 p_date，默认与 date_m 同步
+        p_date_conf = conf.get("p_date")
+        if isinstance(p_date_conf, str) and p_date_conf:
+            params["p_date"] = p_date_conf
+        elif period_type == "day" and date_m:
+            params["p_date"] = date_m
+        extra_raw = conf.get("extra_params") or conf.get("extraParams") or conf.get("extra")
+        if extra_raw is None:
+            extra_raw = os.getenv("JOB_EXTRA_PARAMS") or os.getenv("BI_EXTRA_PARAMS")
+        try:
+            if isinstance(extra_raw, str):
+                extra_parsed = json.loads(extra_raw) if extra_raw.strip() else {}
+            elif isinstance(extra_raw, dict):
+                extra_parsed = extra_raw
+            else:
+                extra_parsed = {}
+        except Exception:
+            extra_parsed = {}
+        if isinstance(extra_parsed, dict):
+            for k, v in extra_parsed.items():
+                params[k] = v
         # Execute batch (sync function inside async context)
         result = run_bi_excel_batch(base=endpoint, file_ids=file_ids or [], params=params)
 
