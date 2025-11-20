@@ -1,6 +1,6 @@
 services:
   sqlbot:
-    image: sqlbot_sxnx:v1.2.0
+    image: sqlbot_sxnx:v1.3.0
     container_name: sqlbot
     restart: always
     privileged: true
@@ -9,16 +9,18 @@ services:
       - ./backend/.env
     networks:
       - sqlbot-network
+    extra_hosts:
+      - "host.docker.internal:172.17.0.1"
     ports:
-      - 8010:8000
+      - 8010:8010
       - 8001:8001
     environment:
       # Database configuration
-      POSTGRES_SERVER: localhost
+      POSTGRES_SERVER: postgres_sqlbot
       POSTGRES_PORT: 5432
-      POSTGRES_DB: sqlbot
-      POSTGRES_USER: root
-      POSTGRES_PASSWORD: Password123@pg
+      POSTGRES_DB: sqlbot_xh_docker
+      POSTGRES_USER: sqlbot_xh
+      POSTGRES_PASSWORD: 11223344
       # Project basic settings
       PROJECT_NAME: "SQLBot"
       DEFAULT_PWD: "SQLBot@123456"
@@ -34,6 +36,11 @@ services:
       # Logging
       LOG_LEVEL: "INFO"
       SQL_DEBUG: False
+      BI_DB_URL: "postgresql+psycopg://root:postgre%40123@host.docker.internal:35432/sqlbot_data"
+      API_FETCH_JOBS: '[{"id":"api_fetch_demo","cron":"0 0 1 * *","endpoint":"http://127.0.0.1:8011/download_excel","method":"GET","period_type":"month","month_offset":-1,"timeout":60,"separator":"_"},{"id":"bi_excel_daily","cron":"0 1 * * *","type":"bi_excel","endpoint":"http://172.29.176.1:8030/download_excel","period_type":"day","day_offset":-1,"p_unit":1},{"id":"bi_excel_daily_2","cron":"0 1 * * *","type":"bi_excel","endpoint":"http://172.29.176.1:8040/download_excel","period_type":"day","day_offset":-1,"p_unit":1}]'
+      JOB_URL_BASE: http://localhost:8030/download_excel
+      JOB_FILE_IDS: 1,2,3,4
+      JOB_DATE_M: 2025-03-31
     volumes:
       - ./data/sqlbot/excel:/opt/sqlbot/data/excel
       - ./data/sqlbot/file:/opt/sqlbot/data/file

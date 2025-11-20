@@ -371,6 +371,7 @@ def insert_df_to_db(df: pd.DataFrame,
                         org_col2 = None
                     try:
                         _time_env = os.getenv('BI_TIME_COLUMN')
+                        # 与上方标准化保持一致：优先使用 "表格日期"，其次 "date_m"
                         _time_candidates = [_time_env, '表格日期', 'date_m']
                         time_col2 = next((c for c in _time_candidates if c and c in df.columns), None)
                     except Exception:
