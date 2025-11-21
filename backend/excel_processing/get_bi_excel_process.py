@@ -4,9 +4,11 @@ import pandas as pd
 import datetime
 import json
 from typing import Dict, Optional
+from io import BytesIO
 from excel_processing.excel_extract import ExcelHeaderProcessor
 from excel_processing.enrich_city_from_org import enrich_city_column
 from sqlalchemy import create_engine, inspect
+import sqlalchemy as sa
 
 # 优先加载根目录与 backend 下的 .env，以支持直接运行脚本场景
 _here = os.path.dirname(__file__)
@@ -53,10 +55,8 @@ def download_excel_to_bytes(url: str, params: Optional[Dict] = None, headers: Op
     try:
         resp = requests.get(url, params=params or {}, headers=headers or {}, timeout=timeout)
         resp.raise_for_status()
-        print("√ Excel已下载为字节内容")
         return resp.content
     except requests.exceptions.RequestException as e:
-        print(f"× 下载文件失败: {e}")
         return None
 
 
@@ -68,10 +68,8 @@ def process_excel_bytes(excel_bytes: bytes, sheet_name: int | str = 0) -> Option
     try:
         processor = ExcelHeaderProcessor(separator="_")
         df = processor.convert_multi_to_single_header_filelike(excel_bytes, header_rows=None, sheet_name=sheet_name)
-        print("√ Excel字节已处理为DataFrame")
         return df
     except Exception as e:
-        print(f"× 处理Excel字节失败: {e}")
         import traceback
         traceback.print_exc()
         return None
@@ -167,7 +165,7 @@ def insert_df_to_db(df: pd.DataFrame,
                 try:
                     alias_map.update(json.loads(_alias_json))
                 except Exception:
-                    print('! BI_ORG_ALIASES_JSON 解析失败，忽略 JSON 映射')
+                    pass
             # 读取 CSV 映射
             _alias_path = os.getenv('BI_ORG_ALIASES_PATH')
             if _alias_path and os.path.exists(_alias_path):
@@ -175,10 +173,8 @@ def insert_df_to_db(df: pd.DataFrame,
                     _csv_df = pd.read_csv(_alias_path)
                     if {'alias', 'canonical'}.issubset(set(_csv_df.columns)):
                         alias_map.update({str(r['alias']): str(r['canonical']) for _, r in _csv_df.iterrows()})
-                    else:
-                        print('! BI_ORG_ALIASES_PATH 缺少列 alias,canonical，忽略 CSV 映射')
                 except Exception:
-                    print('! BI_ORG_ALIASES_PATH 读取失败，忽略 CSV 映射')
+                    pass
 
             def _to_halfwidth(s: str) -> str:
                 # 全角转半角，去除常见空白与括号差异
@@ -203,9 +199,6 @@ def insert_df_to_db(df: pd.DataFrame,
 
             if org_col and org_col in df.columns:
                 df[org_col] = df[org_col].astype(str).map(lambda x: alias_map.get(_normalize_org_name(x), _normalize_org_name(x)))
-            else:
-                print(f"! 未找到机构列（已尝试 {[_org_env, '机构名称', '机构']}），跳过机构标准化")
-
             # 时间列标准化（可选）
             # 时间列标准化：智能检测列名
             _time_env = os.getenv('BI_TIME_COLUMN')
@@ -220,36 +213,59 @@ def insert_df_to_db(df: pd.DataFrame,
                     else:
                         df[time_col] = df[time_col].astype(str).str.strip()
                 except Exception as e:
-                    print(f"! 时间列标准化失败，继续入库: {e}")
-            elif time_col:
-                print(f"! 未找到时间列（已尝试 {[_time_env, '表格日期', 'date_m']}），跳过时间标准化")
+                    pass
         except Exception as e:
-            print(f"! 字段标准化过程异常，继续入库: {e}")
+            import traceback
+            traceback.print_exc()
+        strict_only_append = (os.getenv('BI_STRICT_SCHEMA', 'false').lower() in ('1', 'true', 'yes', 'y'))
+        no_ddl = strict_only_append or (os.getenv('BI_NO_DDL', 'false').lower() in ('1', 'true', 'yes', 'y'))
+        if upsert_create_unique is None:
+            upsert_create_unique = (os.getenv('BI_UPSERT_CREATE_UNIQUE', 'true').lower() in ('1', 'true', 'yes', 'y'))
+        if no_ddl:
+            upsert_create_unique = False
         # 内存层面去重：优先按 dedup_keys，否则按整行；
         # 保留首次出现，但时间列（表格日期_source/表格日期）按组保留最后值
         try:
             _before_cnt = len(df)
             time_cols = [c for c in ['表格日期_source', '表格日期'] if c in df.columns]
+            if dedup_keys is None:
+                if 'org_col' in locals() and 'time_col' in locals() and org_col and time_col:
+                    dedup_keys = [org_col, time_col]
             if dedup_keys and all(k in df.columns for k in dedup_keys):
+                # 检查DataFrame中的重复记录
+                duplicate_records = df[df.duplicated(subset=dedup_keys, keep=False)]
+                if not duplicate_records.empty:
+                    # 可以选择保留第一条或最后一条记录
+                    df = df.drop_duplicates(subset=dedup_keys, keep='last')
+                
                 # 保留首次的记录
                 df_dedup = df.drop_duplicates(subset=dedup_keys, keep='first')
                 # 时间列按组保留最后一次出现的值
                 if time_cols:
-                    last_times = df.groupby(dedup_keys, sort=False)[time_cols].last().reset_index()
-                    df_dedup = df_dedup.merge(last_times, on=dedup_keys, how='left', suffixes=('', '_last'))
-                    for c in time_cols:
-                        cl = c + '_last'
-                        if cl in df_dedup.columns:
-                            df_dedup[c] = df_dedup[cl]
-                    df_dedup.drop(columns=[c + '_last' for c in time_cols if (c + '_last') in df_dedup.columns], inplace=True)
+                    # 修复：避免当time_cols中的列也是dedup_keys时出现的重复列名问题
+                    # 首先确定哪些time_cols不在dedup_keys中，避免列名冲突
+                    time_cols_for_grouping = [c for c in time_cols if c not in dedup_keys]
+                    
+                    if time_cols_for_grouping:
+                        # 只对不在dedup_keys中的时间列进行处理
+                        last_times = df.groupby(dedup_keys, sort=False)[time_cols_for_grouping].last().reset_index()
+                        df_dedup = df_dedup.merge(last_times, on=dedup_keys, how='left', suffixes=('', '_last'))
+                        for c in time_cols_for_grouping:
+                            cl = c + '_last'
+                            if cl in df_dedup.columns:
+                                df_dedup[c] = df_dedup[cl]
+                        df_dedup.drop(columns=[c + '_last' for c in time_cols_for_grouping if (c + '_last') in df_dedup.columns], inplace=True)
+                    else:
+                        # 如果所有time_cols都在dedup_keys中，则不需要额外处理时间列
+                        # 因为它们已经在df_dedup中了
+                        pass
                 df = df_dedup
-                print(f"√ 内存去重完成（保留首次，时间列取最后，keys={dedup_keys}）: {_before_cnt} -> {len(df)}")
             else:
                 # 无明确去重键时，按整行保留首次
                 df = df.drop_duplicates(keep='first')
-                print(f"√ 内存去重完成（保留首次，整行）: {_before_cnt} -> {len(df)}")
         except Exception as e:
-            print(f"! 内存去重失败，继续入库: {e}")
+            import traceback
+            traceback.print_exc()
         try:
             insp = inspect(engine)
             existing_cols = set()
@@ -282,16 +298,17 @@ def insert_df_to_db(df: pd.DataFrame,
                     return 'TEXT'
                 return 'TEXT'
 
-            if missing_cols:
-                quoted_table = f'"{schema}"."{table_name}"' if schema else f'"{table_name}"'
-                with engine.begin() as conn:
-                    for col in missing_cols:
-                        pg_type = _infer_pg_type(df[col])
-                        ddl = f'ALTER TABLE {quoted_table} ADD COLUMN "{col}" {pg_type};'
-                        conn.exec_driver_sql(ddl)
-                print(f"√ 已为现有表追加缺失列: {missing_cols}")
+            if not no_ddl:
+                if missing_cols:
+                    quoted_table = f'"{schema}"."{table_name}"' if schema else f'"{table_name}"'
+                    with engine.begin() as conn:
+                        for col in missing_cols:
+                            pg_type = _infer_pg_type(df[col])
+                            ddl = f'ALTER TABLE {quoted_table} ADD COLUMN "{col}" {pg_type};'
+                            conn.exec_driver_sql(ddl)
         except Exception as e:
-            print(f"! 追加缺失列时遇到问题，继续写入: {e}")
+            import traceback
+            traceback.print_exc()
         # 数据库层面去重：仅在 append 模式且提供 dedup_keys 时进行（启用 upsert 时跳过）
         try:
             if if_exists == 'append' and dedup_with_db and dedup_keys and not upsert_enabled:
@@ -303,7 +320,7 @@ def insert_df_to_db(df: pd.DataFrame,
                 except Exception:
                     _existing_cols = set()
                 if not set(dedup_keys).issubset(_existing_cols):
-                    print(f"! 数据库去重跳过：目标表缺少去重键 {dedup_keys}")
+                    pass
                 else:
                     quoted_table = f'"{schema}"."{table_name}"' if schema else f'"{table_name}"'
                     cols_sql = ', '.join([f'"{k}"' for k in dedup_keys])
@@ -312,17 +329,20 @@ def insert_df_to_db(df: pd.DataFrame,
                         existing_df = pd.read_sql_query(sql, con=engine)
                         existing_set = set(map(tuple, existing_df[dedup_keys].values.tolist()))
                         _before_cnt = len(df)
-                        df = df[~df[dedup_keys].apply(tuple, axis=1).isin(existing_set)]
-                        print(f"√ 数据库去重完成（keys={dedup_keys}）: {_before_cnt} -> {len(df)}")
+                        # 显示将要被数据库去重过滤掉的记录
+                        df_tuples = df[dedup_keys].apply(tuple, axis=1)
+                        df = df[~df_tuples.isin(existing_set)]
                     except Exception as e:
-                        print(f"! 数据库去重失败，继续入库: {e}")
+                        import traceback
+                        traceback.print_exc()
         except Exception as e:
-            print(f"! 数据库去重过程异常，继续入库: {e}")
+            import traceback
+            traceback.print_exc()
         # 列位置保障（PostgreSQL）：保留原数据并调整列顺序
         # 方案：为目标列创建末尾临时列，复制数据 -> 删除旧列 -> 将临时列重命名为原列名
         # 好处：不丢失已有数据，且列位置移动到末尾，最终顺序固定为 [.., 地市, 表格日期_source, 表格日期]
         try:
-            if db_url and db_url.startswith('postgresql'):
+            if not no_ddl and db_url and db_url.startswith('postgresql'):
                 insp = inspect(engine)
                 quoted_table = f'"{schema}"."{table_name}"' if schema else f'"{table_name}"'
                 try:
@@ -344,9 +364,8 @@ def insert_df_to_db(df: pd.DataFrame,
                                 conn.exec_driver_sql(f'ALTER TABLE {quoted_table} DROP COLUMN "{col_name}";')
                             # 临时列重命名为原列名（位置保留在末尾）
                             conn.exec_driver_sql(f'ALTER TABLE {quoted_table} RENAME COLUMN "{tmp_name}" TO "{col_name}";')
-                        print(f"√ 已保留数据并将列置于末尾: {col_name}")
                     except Exception as e:
-                        print(f"! 列重建失败（保留数据）：{col_name}: {e}")
+                        pass
 
                 # 处理“地市”列（若当前 DataFrame 包含该列）
                 if '地市' in df.columns:
@@ -355,7 +374,8 @@ def insert_df_to_db(df: pd.DataFrame,
                 for _tcol in [c for c in ['表格日期_source', '表格日期'] if c in df.columns]:
                     _rebuild_preserve(_tcol)
         except Exception as e:
-            print(f"! 删除并重建时间列过程异常，继续入库: {e}")
+            import traceback
+            traceback.print_exc()
         # PostgreSQL Upsert：合并 B/C 指标到同一行（按组合键）
         try:
             if upsert_enabled and db_url.startswith('postgresql'):
@@ -383,47 +403,71 @@ def insert_df_to_db(df: pd.DataFrame,
                     if len(_auto_keys) >= 1:
                         upsert_keys = _auto_keys
                 if upsert_keys and all(k in df.columns for k in upsert_keys):
+                    insp2 = inspect(engine)
+                    existing_cols2 = set()
+                    try:
+                        existing_cols2 = {c['name'] for c in insp2.get_columns(table_name, schema=schema)}
+                    except Exception:
+                        existing_cols2 = set()
+                    if strict_only_append:
+                        key_cols = [upsert_keys[0]] + ([upsert_keys[1]] if len(upsert_keys) > 1 else [])
+                        if not set(key_cols).issubset(existing_cols2):
+                            return False
+                        effective_cols = [c for c in df.columns if c in existing_cols2]
+                        df = df[effective_cols]
+                        non_key_cols = [c for c in effective_cols if c not in key_cols]
+                    else:
+                        key_cols = upsert_keys
+                        non_key_cols = [c for c in df.columns if c not in key_cols]
                     quoted_table = f'"{schema}"."{table_name}"' if schema else f'"{table_name}"'
-                    all_cols = list(df.columns)
-                    key_cols = upsert_keys
-                    non_key_cols = [c for c in all_cols if c not in key_cols]
-                    cols_sql = ', '.join([f'"{c}"' for c in all_cols])
-                    vals_sql = ', '.join([f'%({c})s' for c in all_cols])
+                    cols_sql = ', '.join([f'"{c}"' for c in df.columns])
+                    vals_sql = ', '.join([f'%({c})s' for c in df.columns])
                     keys_sql = ', '.join([f'"{k}"' for k in key_cols])
                     update_sql = ', '.join([f'"{c}" = EXCLUDED."{c}"' for c in non_key_cols]) or ''
                     sql = f'INSERT INTO {quoted_table} ({cols_sql}) VALUES ({vals_sql}) ON CONFLICT ({keys_sql}) DO UPDATE SET {update_sql};'
-                    # 可选：创建唯一索引以支持冲突键
                     if upsert_create_unique and key_cols:
                         idx_name = f"uidx_{table_name}_{'_'.join([str(k) for k in key_cols])}".replace(' ', '_').lower()
                         create_idx_sql = f'CREATE UNIQUE INDEX IF NOT EXISTS "{idx_name}" ON {quoted_table} ({keys_sql});'
                         try:
                             with engine.begin() as conn:
                                 conn.exec_driver_sql(create_idx_sql)
-                            print(f"√ 已确保唯一索引存在: {idx_name} ON ({key_cols})")
                         except Exception as e:
-                            print(f"! 创建唯一索引失败（忽略）: {e}")
-                    # 执行逐行 upsert（稳妥，避免批量参数风格不兼容）
+                            pass
                     with engine.begin() as conn:
-                        for rec in df.to_dict(orient='records'):
+                        for i, rec in enumerate(df.to_dict(orient='records')):
                             try:
                                 conn.exec_driver_sql(sql, rec)
                             except Exception as e:
-                                print(f"! Upsert 单行失败（跳过继续）: {e}")
-                    print(f"√ Upsert 合并完成: {schema + '.' if schema else ''}{table_name}，按键 {upsert_keys}")
+                                # 检查是否是重复键错误
+                                if 'already exists' in str(e):
+                                    # 查询数据库中是否已存在该记录
+                                    try:
+                                        check_sql = f"SELECT 1 FROM {quoted_table} WHERE "
+                                        conditions = []
+                                        values = []
+                                        for key in key_cols:
+                                            conditions.append(f'"{key}" = %s')
+                                            values.append(rec.get(key))
+                                        check_sql += " AND ".join(conditions)
+                                        result = conn.execute(sa.text(check_sql), values).fetchone()
+                                    except Exception as check_e:
+                                        pass
+                                # 添加详细的错误信息
+                                import traceback
+                                traceback.print_exc()
                     return True
                 else:
-                    print(f"! Upsert 跳过：未提供有效的合并键或键不在列中: {upsert_keys}")
+                    pass
             else:
                 if upsert_enabled:
-                    print("! Upsert 跳过：当前仅支持 PostgreSQL 连接串")
+                    pass
         except Exception as e:
-            print(f"! Upsert 合并过程异常，退回常规写入: {e}")
+            import traceback
+            traceback.print_exc()
         # 退回常规写入
         df.to_sql(name=table_name, con=engine, schema=schema, if_exists=if_exists, index=False)
-        print(f"√ DataFrame已入库: {schema + '.' if schema else ''}{table_name} ({if_exists})")
         return True
     except Exception as e:
-        print(f"× DataFrame入库失败: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -448,9 +492,14 @@ def run_bi_excel_batch(base: str, file_ids: list[str], params: Optional[Dict] = 
     successes = 0
     failures = 0
     if not file_ids:
-        print("未配置 file_id 列表，已跳过批量处理。")
         return {"successes": successes, "failures": failures, "total": 0}
-    print(f"开始批量下载与入库，共 {len(file_ids)} 个 file_id: {file_ids}")
+    table_mapping = {}
+    _tbl_map = os.getenv('BI_TABLE_MAPPING_JSON')
+    if _tbl_map:
+        try:
+            table_mapping = json.loads(_tbl_map)
+        except Exception:
+            table_mapping = {}
     for fid in file_ids:
         url = base
         try:
@@ -458,35 +507,36 @@ def run_bi_excel_batch(base: str, file_ids: list[str], params: Optional[Dict] = 
             per_params["p_org_id"] = str(fid)
             excel_bytes = download_excel_to_bytes(url=url, params=per_params)
             if not excel_bytes:
-                print(f"× 下载失败: file_id={fid}")
                 failures += 1
                 continue
             df = process_excel_bytes(excel_bytes)
             if df is None:
-                print(f"× 处理失败: file_id={fid}")
                 failures += 1
                 continue
+            excel_name = ''
+            try:
+                processor = ExcelHeaderProcessor(separator="_")
+                file_like = BytesIO(excel_bytes)
+                excel_name, _ = processor.get_name_time_filelike(file_like, sheet_name=0)
+            except Exception:
+                excel_name = ''
             try:
                 df = enrich_city_column(df)
             except Exception as e:
-                print(f"! 填充地市列失败（继续入库）: file_id={fid}, err={e}")
+                pass
             ok = insert_df_to_db(
                 df=df,
                 db_url=os.getenv('BI_DB_URL'),
-                table_name=os.getenv('BI_TABLE_NAME'),
+                table_name=table_mapping.get(excel_name, os.getenv('BI_TABLE_NAME')),
                 schema=os.getenv('BI_SCHEMA'),
                 if_exists=os.getenv('BI_IF_EXISTS', 'append')
             )
             if ok:
                 successes += 1
-                print(f"√ 入库成功: file_id={fid}")
             else:
                 failures += 1
-                print(f"× 入库失败: file_id={fid}")
         except Exception as e:
             failures += 1
-            print(f"× 执行失败: file_id={fid}, err={e}")
-    print(f"批量任务完成：成功 {successes}，失败 {failures}，总计 {len(file_ids)}")
     return {"successes": successes, "failures": failures, "total": len(file_ids)}
 
 
