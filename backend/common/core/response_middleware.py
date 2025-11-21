@@ -1,4 +1,5 @@
 import json
+import math
 
 from starlette.exceptions import HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -7,6 +8,18 @@ from starlette.responses import JSONResponse
 
 from common.core.config import settings
 from common.utils.utils import SQLBotLogUtil
+
+
+def make_json_compliant(data):
+    """Recursively make data JSON compliant by handling NaN and Infinity values"""
+    if isinstance(data, dict):
+        return {key: make_json_compliant(value) for key, value in data.items()}
+    elif isinstance(data, list):
+        return [make_json_compliant(item) for item in data]
+    elif isinstance(data, float):
+        if math.isinf(data) or math.isnan(data):
+            return None  # or return a string representation
+    return data
 
 
 class ResponseMiddleware(BaseHTTPMiddleware):
@@ -39,6 +52,9 @@ class ResponseMiddleware(BaseHTTPMiddleware):
 
                 raw_data = json.loads(body.decode())
 
+                # Make data JSON compliant before further processing
+                raw_data = make_json_compliant(raw_data)
+
                 if isinstance(raw_data, dict) and all(k in raw_data for k in ["code", "data", "msg"]):
                     return JSONResponse(
                         content=raw_data,
@@ -61,7 +77,7 @@ class ResponseMiddleware(BaseHTTPMiddleware):
                     headers={
                         k: v for k, v in response.headers.items()
                         if k.lower() not in ("content-length", "content-type")
-                    }
+                        }
                 )
             except Exception as e:
                 SQLBotLogUtil.error(f"Response processing error: {str(e)}", exc_info=True)

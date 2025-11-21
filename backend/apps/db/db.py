@@ -4,6 +4,7 @@ import platform
 import urllib.parse
 from decimal import Decimal
 from typing import Optional
+import math
 
 import psycopg2
 import pymssql
@@ -422,6 +423,13 @@ def exec_sql(ds: CoreDatasource | AssistantOutDsSchema, sql: str, origin_column=
     while sql.endswith(';'):
         sql = sql[:-1]
 
+    def sanitize_value(value):
+        """Sanitize values to make them JSON compliant"""
+        if isinstance(value, float):
+            if math.isinf(value) or math.isnan(value):
+                return None  # or you could return a string representation like "Infinity" or "NaN"
+        return value
+
     db = DB.get_db(ds.type)
     if db.connect_type == ConnectType.sqlalchemy:
         with get_session(ds) as session:
@@ -430,7 +438,7 @@ def exec_sql(ds: CoreDatasource | AssistantOutDsSchema, sql: str, origin_column=
                     columns = result.keys()._keys if origin_column else [item.lower() for item in result.keys()._keys]
                     res = result.fetchall()
                     result_list = [
-                        {str(columns[i]): float(value) if isinstance(value, Decimal) else value for i, value in
+                        {str(columns[i]): sanitize_value(float(value) if isinstance(value, Decimal) else value) for i, value in
                          enumerate(tuple_item)}
                         for tuple_item in res
                     ]
@@ -451,7 +459,7 @@ def exec_sql(ds: CoreDatasource | AssistantOutDsSchema, sql: str, origin_column=
                                                                                                 field in
                                                                                                 cursor.description]
                     result_list = [
-                        {str(columns[i]): float(value) if isinstance(value, Decimal) else value for i, value in
+                        {str(columns[i]): sanitize_value(float(value) if isinstance(value, Decimal) else value) for i, value in
                          enumerate(tuple_item)}
                         for tuple_item in res
                     ]
@@ -470,7 +478,7 @@ def exec_sql(ds: CoreDatasource | AssistantOutDsSchema, sql: str, origin_column=
                                                                                                 field in
                                                                                                 cursor.description]
                     result_list = [
-                        {str(columns[i]): float(value) if isinstance(value, Decimal) else value for i, value in
+                        {str(columns[i]): sanitize_value(float(value) if isinstance(value, Decimal) else value) for i, value in
                          enumerate(tuple_item)}
                         for tuple_item in res
                     ]
@@ -489,7 +497,7 @@ def exec_sql(ds: CoreDatasource | AssistantOutDsSchema, sql: str, origin_column=
                                                                                                 field in
                                                                                                 cursor.description]
                     result_list = [
-                        {str(columns[i]): float(value) if isinstance(value, Decimal) else value for i, value in
+                        {str(columns[i]): sanitize_value(float(value) if isinstance(value, Decimal) else value) for i, value in
                          enumerate(tuple_item)}
                         for tuple_item in res
                     ]
@@ -509,7 +517,7 @@ def exec_sql(ds: CoreDatasource | AssistantOutDsSchema, sql: str, origin_column=
                                                                                                 field in
                                                                                                 cursor.description]
                     result_list = [
-                        {str(columns[i]): float(value) if isinstance(value, Decimal) else value for i, value in
+                        {str(columns[i]): sanitize_value(float(value) if isinstance(value, Decimal) else value) for i, value in
                          enumerate(tuple_item)}
                         for tuple_item in res
                     ]
@@ -524,7 +532,7 @@ def exec_sql(ds: CoreDatasource | AssistantOutDsSchema, sql: str, origin_column=
                                                                                           field in
                                                                                           columns]
                 result_list = [
-                    {str(columns[i]): float(value) if isinstance(value, Decimal) else value for i, value in
+                    {str(columns[i]): sanitize_value(float(value) if isinstance(value, Decimal) else value) for i, value in
                      enumerate(tuple(tuple_item))}
                     for tuple_item in res
                 ]
