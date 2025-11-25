@@ -3,7 +3,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
 from apps.system.schemas.system_schema import BaseUserDTO
 from common.core.deps import SessionDep, Trans
-from common.utils.crypto import sqlbot_decrypt
 from ..crud.user import authenticate
 from common.core.security import create_access_token
 from datetime import timedelta
@@ -17,9 +16,8 @@ async def local_login(
     trans: Trans,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
 ) -> Token:
-    origin_account = await sqlbot_decrypt(form_data.username)
-    origin_pwd = await sqlbot_decrypt(form_data.password)
-    user: BaseUserDTO = authenticate(session=session, account=origin_account, password=origin_pwd)
+    # 直接使用明文用户名和密码，不再进行解密操作
+    user: BaseUserDTO = authenticate(session=session, account=form_data.username, password=form_data.password)
     if not user:
         raise HTTPException(status_code=400, detail=trans('i18n_login.account_pwd_error'))
     if not user.oid or user.oid == 0:
