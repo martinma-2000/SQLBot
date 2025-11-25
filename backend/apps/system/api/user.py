@@ -117,6 +117,48 @@ async def query(session: SessionDep, trans: Trans, id: int) -> UserEditor:
         result.oid_list = [item.id for item in u_ws_options]
     return result
 
+@router.get("/account/{account}", response_model=UserEditor)
+async def get_user_by_account(session: SessionDep, account: str) -> UserEditor:
+    """
+    通过账号获取用户信息
+    
+    Args:
+        session: 数据库会话
+        account: 用户账号
+        
+    Returns:
+        UserEditor: 用户信息
+        
+    Raises:
+        HTTPException: 当用户不存在时抛出404异常
+    """
+    db_user = session.exec(select(UserModel).where(UserModel.account == account)).first()
+    if not db_user:
+        raise HTTPException(status_code=404, detail=f"User with account '{account}' not found")
+    
+    return UserEditor.model_validate(db_user.model_dump())
+
+@router.get("/account/{account}/id")
+async def get_user_id_by_account(session: SessionDep, account: str) -> dict:
+    """
+    通过账号获取用户ID
+    
+    Args:
+        session: 数据库会话
+        account: 用户账号
+        
+    Returns:
+        dict: 包含用户ID的字典 {"id": int}
+        
+    Raises:
+        HTTPException: 当用户不存在时抛出404异常
+    """
+    db_user = session.exec(select(UserModel).where(UserModel.account == account)).first()
+    if not db_user:
+        raise HTTPException(status_code=404, detail=f"User with account '{account}' not found")
+    
+    return {"id": db_user.id}
+
 @router.post("")
 async def create(session: SessionDep, creator: UserCreator, trans: Trans):
     if check_account_exists(session=session, account=creator.account):
