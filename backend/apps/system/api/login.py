@@ -11,6 +11,9 @@ from ..models.user import UserModel
 from ..models.system_model import UserWsModel
 from sqlmodel import select
 import re
+import json
+# Import DsRules model
+from sqlbot_xpack.permissions.models.ds_rules import DsRules
 
 router = APIRouter(tags=["login"], prefix="/login")
 
@@ -64,6 +67,38 @@ async def local_login(
             )
             session.add(user_ws)
             session.commit()
+            
+            # Automatically add user to permission group based on org_id
+            # Check if a rule group with the org_id name exists
+            org_id_str = str(org_id)
+            ds_rules = session.exec(select(DsRules).where(DsRules.name == org_id_str)).first()
+            
+            if ds_rules:
+                # If rule group exists, add user to it
+                try:
+                    user_list = json.loads(ds_rules.user_list) if ds_rules.user_list else []
+                except (json.JSONDecodeError, TypeError):
+                    user_list = []
+                
+                # 确保使用用户ID的字符串形式而不是整数形式添加到规则组
+                user_id_str = str(new_user.id)
+                if user_id_str not in user_list:
+                    user_list.append(user_id_str)
+                    ds_rules.user_list = json.dumps(user_list)
+                    session.add(ds_rules)
+                    session.commit()
+            else:
+                # If rule group doesn't exist, create a new one with org_id as name
+                new_rule_group = DsRules(
+                    enable=True,
+                    name=org_id_str,
+                    description=f"Permission group for organization {org_id_str}",
+                    user_list=json.dumps([str(new_user.id)]),  # 使用用户ID的字符串形式
+                    permission_list="[]",
+                    oid=default_workspace_id
+                )
+                session.add(new_rule_group)
+                session.commit()
             
             # 直接使用新创建的用户信息创建BaseUserDTO对象
             # 注意：UserModel没有creator、updater等BaseCreatorDTO字段，所以我们只传递实际存在的字段
