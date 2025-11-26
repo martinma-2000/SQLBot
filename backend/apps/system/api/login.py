@@ -4,7 +4,7 @@ from apps.system.schemas.system_schema import BaseUserDTO
 from common.core.deps import SessionDep, Trans
 from ..crud.user import authenticate, get_user_by_account
 from common.core.security import create_access_token, md5pwd, default_md5_pwd
-from datetime import timedelta
+from datetime import timedelta, datetime
 from common.core.config import settings
 from common.core.schemas import Token
 from ..models.user import UserModel
@@ -14,6 +14,9 @@ import re
 import json
 # Import DsRules model
 from sqlbot_xpack.permissions.models.ds_rules import DsRules
+# Import DsPermission model
+from sqlbot_xpack.permissions.models.ds_permission import DsPermission
+from apps.datasource.models.datasource import CoreDatasource, CoreTable, CoreField
 
 router = APIRouter(tags=["login"], prefix="/login")
 
@@ -95,10 +98,79 @@ async def local_login(
                     description=f"Permission group for organization {org_id_str}",
                     user_list=json.dumps([str(new_user.id)]),  # 使用用户ID的字符串形式
                     permission_list="[]",
-                    oid=default_workspace_id
+                    oid=default_workspace_id,
+                    create_time=datetime.now()
                 )
                 session.add(new_rule_group)
                 session.commit()
+                session.refresh(new_rule_group)
+                
+                # Create permission rule based on org_id
+                # Check if org_id ends with 99
+                rule_name = ""
+                search_value = ""
+                if org_id_str.endswith("99") and len(org_id_str) >= 8:
+                    # Extract first 6 digits
+                    rule_name = org_id_str[:6]
+                    search_value = org_id_str[:6]
+                else:
+                    # Use full 8-digit org_id
+                    rule_name = org_id_str
+                    search_value = org_id_str
+                
+                # Find all datasources
+                datasources = session.exec(select(CoreDatasource)).all()
+                permission_ids = []
+                
+                for ds in datasources:
+                    # Find tables with fields containing "编码" (code)
+                    tables = session.exec(select(CoreTable).where(CoreTable.ds_id == ds.id)).all()
+                    for table in tables:
+                        # Check if table has fields with "编码" in field_comment or field_name
+                        fields = session.exec(select(CoreField).where(
+                            CoreField.table_id == table.id,
+                            (CoreField.field_comment.like("%编码%")) | (CoreField.field_name.like("%编码%"))
+                        )).all()
+                        
+                        if fields:
+                            # Create expression tree for the permission rule
+                            expression_tree = {
+                                "logic": "or",
+                                "items": [{
+                                    "enum_value": [],
+                                    "field_id": fields[0].id,
+                                    "filter_type": "logic",
+                                    "term": "like",
+                                    "value": search_value,
+                                    "type": "item",
+                                    "sub_tree": None
+                                }]
+                            }
+                            
+                            # Create new permission rule
+                            permission_rule = DsPermission(
+                                enable=True,
+                                name=f"Permission rule for {rule_name}",
+                                type="row",
+                                ds_id=ds.id,
+                                table_id=table.id,
+                                expression_tree=json.dumps(expression_tree),
+                                permissions="[]",
+                                oid=default_workspace_id,
+                                create_time=datetime.now(),
+                                auth_target_type="ds_rules",
+                                auth_target_id=new_rule_group.id
+                            )
+                            session.add(permission_rule)
+                            session.commit()
+                            session.refresh(permission_rule)
+                            permission_ids.append(permission_rule.id)
+                
+                # Update the rule group with permission list
+                if permission_ids:
+                    new_rule_group.permission_list = json.dumps(permission_ids)
+                    session.add(new_rule_group)
+                    session.commit()
             
             # 直接使用新创建的用户信息创建BaseUserDTO对象
             # 注意：UserModel没有creator、updater等BaseCreatorDTO字段，所以我们只传递实际存在的字段
