@@ -5,10 +5,11 @@ import traceback
 import uuid
 from io import StringIO
 from typing import List
+from enum import Enum
 
 import orjson
 import pandas as pd
-from fastapi import APIRouter, File, UploadFile, HTTPException, Form
+from fastapi import APIRouter, File, UploadFile, HTTPException, Form, Query
 import requests
 from pydantic import BaseModel
 
@@ -73,11 +74,75 @@ class TestApiResponse(BaseModel):
     filename: str | None = None
 
 
+class DataSourceQuestionResponse(BaseModel):
+    """数据源和问题响应模型"""
+    datasource_id: int
+    questions: List[str]
+
+
+class CommonQuestionType(str, Enum):
+    """常见问题类型枚举"""
+    ASSETS = "assets"      # 资产
+    INDICATORS = "indicators"  # 指标
+    REPORTS = "reports"    # 报表
+
+
 @router.get("/ws/{oid}", include_in_schema=False)
 async def query_by_oid(session: SessionDep, user: CurrentUser, oid: int) -> List[CoreDatasource]:
     if not user.isAdmin:
         raise Exception("no permission to execute")
     return get_datasource_list(session=session, user=user, oid=oid)
+
+
+@router.get("/common-questions", response_model=DataSourceQuestionResponse)
+async def get_common_questions(
+    session: SessionDep, 
+    question_type: CommonQuestionType = Query(..., description="问题类型: assets(资产), indicators(指标), reports(报表)")
+):
+    """
+    根据不同类型获取常见问题
+    
+    Args:
+        session: 数据库会话
+        question_type: 问题类型 (assets: 资产, indicators: 指标, reports: 报表)
+        
+    Returns:
+        DataSourceQuestionResponse: 包含数据源ID和问题列表
+        
+    Examples:
+        1. 资产类型: 返回问题 D, E, F (无数据源ID)
+        2. 指标类型: 返回问题 G, H, I (无数据源ID)
+        3. 报表类型: 返回数据源ID和问题 A, B, C
+    """
+    if question_type == CommonQuestionType.ASSETS:
+        # 资产类型：返回问题D, E, F，数据源ID为0
+        return DataSourceQuestionResponse(
+            datasource_id=0,
+            questions=["D", "E", "F"]
+        )
+    elif question_type == CommonQuestionType.INDICATORS:
+        # 指标类型：返回问题G, H, I，数据源ID为0
+        return DataSourceQuestionResponse(
+            datasource_id=0,
+            questions=["G", "H", "I"]
+        )
+    elif question_type == CommonQuestionType.REPORTS:
+        # 报表类型：查找名为"存款测试"的数据源
+        datasource = session.query(CoreDatasource).filter(CoreDatasource.name == "存款测试").first()
+        
+        # 如果找不到"存款测试"数据源，获取第一个可用的数据源
+        if not datasource:
+            datasource = session.query(CoreDatasource).first()
+        
+        # 如果仍然没有数据源，抛出异常
+        if not datasource:
+            raise HTTPException(status_code=404, detail="No datasource found")
+        
+        # 返回数据源ID和问题A, B, C
+        return DataSourceQuestionResponse(
+            datasource_id=datasource.id,
+            questions=["A", "B", "C"]
+        )
 
 
 @router.get("/list")
