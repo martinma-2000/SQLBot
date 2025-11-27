@@ -200,6 +200,71 @@ async def delete(session: SessionDep, id: int):
     return delete_ds(session, id)
 
 
+class CreateDatasourceFromMergeResult(BaseModel):
+    """根据合并结果创建数据源的请求模型"""
+    name: str
+    description: str = ""
+    type: str = "excel"
+    filename: str
+    sheets: List[dict]
+    
+    
+@router.post("/create-from-merge-result", response_model=CoreDatasource)
+async def create_datasource_from_merge_result(
+    session: SessionDep, 
+    trans: Trans, 
+    user: CurrentUser, 
+    merge_result: CreateDatasourceFromMergeResult
+):
+    """
+    根据concatenateExcels或mergeExcelsHorizontally的输出结果创建数据源记录
+    
+    参数:
+    - name: 数据源名称
+    - description: 数据源描述
+    - type: 数据源类型，默认为"excel"
+    - filename: 合并后的文件名
+    - sheets: 表信息列表，每个元素包含tableName和tableComment
+    
+    返回:
+    - CoreDatasource: 创建的数据源对象
+    """
+    # 构建configuration
+    configuration = {
+        "filename": merge_result.filename,
+        "sheets": merge_result.sheets,
+        "mode": "service_name"
+    }
+    
+    # 加密configuration
+    from ..utils.utils import aes_encrypt
+    import json
+    encrypted_config = aes_encrypt(json.dumps(configuration)).decode('utf-8')
+    
+    # 构建tables
+    tables = []
+    for sheet in merge_result.sheets:
+        table = CoreTable(
+            table_name=sheet["tableName"],
+            table_comment=sheet.get("tableComment", "")
+        )
+        tables.append(table)
+    
+    # 构建CreateDatasource对象
+    create_ds_obj = CreateDatasource(
+        name=merge_result.name,
+        description=merge_result.description,
+        type=merge_result.type,
+        configuration=encrypted_config,
+        tables=tables
+    )
+    
+    def inner():
+        return create_ds(session, trans, user, create_ds_obj)
+    
+    return await asyncio.to_thread(inner)
+
+
 @router.post("/getTables/{id}")
 async def get_tables(session: SessionDep, id: int):
     return getTables(session, id)
