@@ -19,10 +19,74 @@ from common.core.deps import CurrentAssistant, SessionDep, CurrentUser, Trans
 
 router = APIRouter(tags=["Data Q&A"], prefix="/chat")
 
+# 添加新的数据模型用于历史查询接口
+class HistoryQueryResponse(BaseModel):
+    limit: int
+    has_more: bool
+    data: list
 
 @router.get("/list")
 async def chats(session: SessionDep, current_user: CurrentUser):
     return list_chats(session, current_user)
+
+
+# 添加新的历史查询接口
+@router.get("/history-query")
+async def history_query(session: SessionDep, current_user: CurrentUser, limit: int = 10):
+    """
+    获取历史会话列表，格式化为类似 Dify 的历史会话格式
+    """
+    # 获取聊天列表
+    chat_list = list_chats(session, current_user)
+    
+    # 转换为 Dify 格式
+    dify_format_data = []
+    
+    # 限制返回的聊天数量
+    chats_to_process = chat_list[:limit]
+    
+    for chat in chats_to_process:
+        # 为每个聊天创建一个类似 Dify 的记录
+        dify_record = {
+            "id": str(chat.id) if chat.id else "",
+            "conversation_id": str(chat.id) if chat.id else "",
+            "inputs": {
+                "file": None
+            },
+            "query": chat.brief if chat.brief else "",
+            "message": "",
+            "message_tokens": 0,
+            "answer": "",
+            "answer_tokens": 0,
+            "provider_response_latency": 0.0,
+            "from_source": "api",
+            "from_end_user_id": str(current_user.id) if current_user.id else "",
+            "from_account_id": None,
+            "feedbacks": [],
+            "workflow_run_id": None,
+            "annotation": None,
+            "annotation_hit_history": None,
+            "created_at": int(chat.create_time.timestamp()) if chat.create_time else 0,
+            "agent_thoughts": [],
+            "message_files": [],
+            "metadata": {},
+            "status": "completed",
+            "error": None,
+            "parent_message_id": None
+        }
+        
+        # 如果聊天有错误信息，则更新状态和错误信息
+        if hasattr(chat, 'error') and chat.error:
+            dify_record["status"] = "error"
+            dify_record["error"] = chat.error
+        
+        dify_format_data.append(dify_record)
+    
+    return {
+        "limit": limit,
+        "has_more": len(chat_list) > limit,
+        "data": dify_format_data
+    }
 
 
 @router.get("/get/{chart_id}")
