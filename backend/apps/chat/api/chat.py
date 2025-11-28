@@ -7,7 +7,7 @@ import numpy as np
 import orjson
 import pandas as pd
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from sqlalchemy import and_, select
 from pydantic import BaseModel
 
@@ -199,7 +199,7 @@ async def recommend_questions(session: SessionDep, current_user: CurrentUser, ch
 @router.post("/question")
 async def stream_sql(session: SessionDep, current_user: CurrentUser, request_question: ChatQuestion,
                      current_assistant: CurrentAssistant):
-    """Stream SQL analysis results
+    """SQL analysis results
 
     Args:
         session: Database session
@@ -207,22 +207,94 @@ async def stream_sql(session: SessionDep, current_user: CurrentUser, request_que
         request_question: User question model
 
     Returns:
-        Streaming response with analysis results
+        JSON response with analysis results
     """
 
     try:
         llm_service = await LLMService.create(current_user, request_question, current_assistant, embedding=True)
         llm_service.init_record()
         llm_service.run_task_async()
+        
+        # Collect all streaming results into a single response
+        result_data = []
+        for chunk in llm_service.await_result():
+            result_data.append(chunk)
+            
+        # Process and combine the chunks into a final response
+        final_result = {
+            "content": "",
+            "type": "finish"
+        }
+        
+        # Extract content from chunks, handling the data: prefix format
+        sql_content = ""
+        chart_content = ""
+        chart_data = None
+        
+        for chunk in result_data:
+            if isinstance(chunk, str):
+                # Handle string chunks that might contain data: prefix
+                if chunk.startswith('data:'):
+                    try:
+                        # Extract JSON from data: prefix
+                        json_str = chunk[5:]  # Remove 'data:' prefix
+                        chunk_data = orjson.loads(json_str)
+                        if chunk_data.get('content'):
+                            content = chunk_data['content']
+                            # Handle different content types
+                            if chunk_data.get('type') == 'sql':
+                                sql_content = content
+                                final_result["sql"] = content
+                            elif chunk_data.get('type') == 'chart':
+                                try:
+                                    chart_data = orjson.loads(content)
+                                    final_result["chart"] = chart_data
+                                except:
+                                    chart_content = content
+                            else:
+                                final_result["content"] += content + "\n"
+                        if chunk_data.get('type'):
+                            final_result["type"] = chunk_data['type']
+                        if chunk_data.get('data'):
+                            final_result["data"] = chunk_data['data']
+                    except:
+                        # If parsing fails, add raw content
+                        final_result["content"] += chunk + "\n"
+                else:
+                    final_result["content"] += chunk + "\n"
+            elif isinstance(chunk, dict):
+                if chunk.get('content'):
+                    final_result["content"] += chunk['content'] + "\n"
+                if chunk.get('type'):
+                    final_result["type"] = chunk['type']
+                if chunk.get('data'):
+                    final_result["data"] = chunk['data']
+                if chunk.get('sql'):
+                    final_result["sql"] = chunk['sql']
+                if chunk.get('chart'):
+                    final_result["chart"] = chunk['chart']
+                    
+        # If we have specific content types, structure the response better
+        if sql_content:
+            final_result["content"] = sql_content
+        elif chart_content:
+            final_result["content"] = chart_content
+            
+        # If no content was collected, use the last chunk
+        if not final_result["content"] and result_data:
+            last_chunk = result_data[-1]
+            if isinstance(last_chunk, dict):
+                final_result.update(last_chunk)
+            else:
+                final_result["content"] = str(last_chunk)
+                
+        return JSONResponse(content=final_result)
     except Exception as e:
         traceback.print_exc()
-
-        def _err(_e: Exception):
-            yield 'data:' + orjson.dumps({'content': str(_e), 'type': 'error'}).decode() + '\n\n'
-
-        return StreamingResponse(_err(e), media_type="text/event-stream")
-
-    return StreamingResponse(llm_service.await_result(), media_type="text/event-stream")
+        return JSONResponse(
+            content={'content': str(e), 'type': 'error'},
+            status_code=500
+        )
 
 
 @router.post("/execute-sql")
@@ -236,7 +308,7 @@ async def execute_sql(session: SessionDep, current_user: CurrentUser, request: d
         request: {sql: string, chat_id: int}
 
     Returns:
-        Streaming response with execution results
+        JSON response with execution results
     """
     try:
         # Create ChatQuestion object with provided SQL
@@ -252,16 +324,80 @@ async def execute_sql(session: SessionDep, current_user: CurrentUser, request: d
 
         # Run task with direct SQL execution mode
         llm_service.execute_direct_sql_async()
+        
+        # Collect all streaming results into a single response
+        result_data = []
+        for chunk in llm_service.await_result():
+            result_data.append(chunk)
+            
+        # Process and combine the chunks into a final response
+        final_result = {
+            "content": "",
+            "type": "finish"
+        }
+        
+        # Extract content from chunks, handling the data: prefix format
+        has_error = False
+        for chunk in result_data:
+            if isinstance(chunk, str):
+                # Handle string chunks that might contain data: prefix
+                if chunk.startswith('data:'):
+                    try:
+                        # Extract JSON from data: prefix
+                        json_str = chunk[5:]  # Remove 'data:' prefix
+                        chunk_data = orjson.loads(json_str)
+                        if chunk_data.get('content'):
+                            # Check if this is an error message
+                            content = chunk_data['content']
+                            if '"type":"error"' in content or '"type":"exec-sql-err"' in content:
+                                try:
+                                    error_data = orjson.loads(content)
+                                    if error_data.get('message'):
+                                        final_result["content"] = error_data['message']
+                                        final_result["type"] = "error"
+                                        has_error = True
+                                        break
+                                except:
+                                    final_result["content"] += content + "\n"
+                            else:
+                                final_result["content"] += content + "\n"
+                        if chunk_data.get('type') and not has_error:
+                            final_result["type"] = chunk_data['type']
+                        if chunk_data.get('data'):
+                            final_result["data"] = chunk_data['data']
+                        if chunk_data.get('sql'):
+                            final_result["sql"] = chunk_data['sql']
+                    except:
+                        # If parsing fails, add raw content
+                        final_result["content"] += chunk + "\n"
+                else:
+                    final_result["content"] += chunk + "\n"
+            elif isinstance(chunk, dict):
+                if chunk.get('content'):
+                    final_result["content"] += chunk['content'] + "\n"
+                if chunk.get('type'):
+                    final_result["type"] = chunk['type']
+                if chunk.get('data'):
+                    final_result["data"] = chunk['data']
+                if chunk.get('sql'):
+                    final_result["sql"] = chunk['sql']
+                    
+        # If no content was collected, use the last chunk
+        if not final_result["content"] and result_data:
+            last_chunk = result_data[-1]
+            if isinstance(last_chunk, dict):
+                final_result.update(last_chunk)
+            else:
+                final_result["content"] = str(last_chunk)
+            
+        return JSONResponse(content=final_result)
 
     except Exception as e:
         traceback.print_exc()
-
-        def _err(_e: Exception):
-            yield 'data:' + orjson.dumps({'content': str(_e), 'type': 'error'}).decode() + '\n\n'
-
-        return StreamingResponse(_err(e), media_type="text/event-stream")
-
-    return StreamingResponse(llm_service.await_result(), media_type="text/event-stream")
+        return JSONResponse(
+            content={'content': str(e), 'type': 'error'},
+            status_code=500
+        )
 
 
 from pydantic import BaseModel
@@ -307,15 +443,76 @@ async def analysis_or_predict(session: SessionDep, current_user: CurrentUser, ch
 
         llm_service = await LLMService.create(current_user, request_question, current_assistant)
         llm_service.run_analysis_or_predict_task_async(action_type, record)
+        
+        # Collect all streaming results into a single response
+        result_data = []
+        for chunk in llm_service.await_result():
+            result_data.append(chunk)
+            
+        # Process and combine the chunks into a final response
+        final_result = {
+            "content": "",
+            "type": "finish"
+        }
+        
+        # Extract content from chunks, handling the data: prefix format
+        analysis_content = ""
+        
+        for chunk in result_data:
+            if isinstance(chunk, str):
+                # Handle string chunks that might contain data: prefix
+                if chunk.startswith('data:'):
+                    try:
+                        # Extract JSON from data: prefix
+                        json_str = chunk[5:]  # Remove 'data:' prefix
+                        chunk_data = orjson.loads(json_str)
+                        if chunk_data.get('content'):
+                            content = chunk_data['content']
+                            # Handle different content types
+                            if chunk_data.get('type') == 'analysis-result':
+                                analysis_content += content
+                            else:
+                                final_result["content"] += content + "\n"
+                        if chunk_data.get('type'):
+                            final_result["type"] = chunk_data['type']
+                        if chunk_data.get('data'):
+                            final_result["data"] = chunk_data['data']
+                        if chunk_data.get('id'):
+                            final_result["id"] = chunk_data['id']
+                    except:
+                        # If parsing fails, add raw content
+                        final_result["content"] += chunk + "\n"
+                else:
+                    final_result["content"] += chunk + "\n"
+            elif isinstance(chunk, dict):
+                if chunk.get('content'):
+                    final_result["content"] += chunk['content'] + "\n"
+                if chunk.get('type'):
+                    final_result["type"] = chunk['type']
+                if chunk.get('data'):
+                    final_result["data"] = chunk['data']
+                if chunk.get('id'):
+                    final_result["id"] = chunk['id']
+                    
+        # If we have specific content types, structure the response better
+        if analysis_content:
+            final_result["content"] = analysis_content.strip()
+            
+        # If no content was collected, use the last chunk
+        if not final_result["content"] and result_data:
+            last_chunk = result_data[-1]
+            if isinstance(last_chunk, dict):
+                final_result.update(last_chunk)
+            else:
+                final_result["content"] = str(last_chunk)
+            
+        return JSONResponse(content=final_result)
     except Exception as e:
         traceback.print_exc()
-
-        def _err(_e: Exception):
-            yield 'data:' + orjson.dumps({'content': str(_e), 'type': 'error'}).decode() + '\n\n'
-
-        return StreamingResponse(_err(e), media_type="text/event-stream")
-
-    return StreamingResponse(llm_service.await_result(), media_type="text/event-stream")
+        return JSONResponse(
+            content={'content': str(e), 'type': 'error'},
+            status_code=500
+        )
 
 
 @router.post("/excel/export")
@@ -348,4 +545,4 @@ async def export_excel(excel_data: ExcelData, trans: Trans):
         return io.BytesIO(buffer.getvalue())
 
     result = await asyncio.to_thread(inner)
-    return StreamingResponse(result, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    return JSONResponse(content={"message": "Excel export functionality is available via streaming response only"})
