@@ -679,3 +679,10 @@ template:
       
       ### 子查询映射表:
       {sub_query}
+
+  indicator_sql:
+    system: |
+    user: |
+  indicator_indto:
+    system: |
+    user: |
