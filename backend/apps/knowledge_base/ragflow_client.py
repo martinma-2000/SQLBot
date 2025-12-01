@@ -4,6 +4,7 @@ RAGFlow客户端模块
 """
 import httpx
 import json
+import logging
 import os
 from typing import Dict, List, Optional, Any
 from common.utils.logger import logger
@@ -11,6 +12,13 @@ from common.utils.logger import logger
 # 添加大模型相关的导入
 from apps.ai_model.model_factory import LLMFactory, get_default_config
 
+# 添加数据库配置
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
+from dotenv import load_dotenv
+
+# 加载环境变量
+load_dotenv()
 
 class RAGFlowClient:
     """RAGFlow API客户端"""
@@ -32,7 +40,49 @@ class RAGFlowClient:
             'Authorization': f'Bearer {api_key}',
             'Content-Type': 'application/json'
         }
+        # RAGFlow数据库URL
+        self.ragflow_db_url = os.getenv("RAGFLOW_DB_URL", "postgresql+psycopg://sqlbot_xh:11223344@localhost:45432/sqlbot_xh")
+        # BI数据库URL
+        self.bi_db_url = os.getenv("BI_DB_URL", "postgresql+psycopg://root:postgre%40123@localhost:35432/sqlbot_data")
     
+    def get_database_engine(self):
+        """
+        获取数据库引擎
+        
+        Returns:
+            SQLAlchemy引擎实例
+        """
+        engine = create_engine(self.ragflow_db_url)
+        return engine
+    
+    def get_bi_database_engine(self):
+        """
+        获取BI数据库引擎
+        
+        Returns:
+            SQLAlchemy引擎实例
+        """
+        engine = create_engine(self.bi_db_url)
+        return engine
+    
+    def create_table_if_not_exists(self):
+        """
+        创建必要的表（如果不存在）
+        """
+        engine = self.get_database_engine()
+        with engine.connect() as conn:
+            # 创建用于存储查询历史的表
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS query_history (
+                    id SERIAL PRIMARY KEY,
+                    query_text TEXT NOT NULL,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    results JSONB
+                )
+            """))
+            conn.commit()
+        logger.info("确保query_history表存在")
+
     async def get_knowledge_bases(self) -> List[Dict[str, Any]]:
         """
         获取所有知识库列表
@@ -238,7 +288,9 @@ class RAGFlowClient:
             # 尝试解析JSON
             try:
                 parsed_result = json.loads(analysis_result)
-                logger.info(f"问题分析成功: '{question}' -> {parsed_result}")
+                # 只在调试模式下记录详细日志
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"问题分析成功: '{question}' -> {parsed_result}")
                 return parsed_result
             except json.JSONDecodeError:
                 logger.warning(f"大模型返回的不是有效JSON格式: {analysis_result}")
@@ -305,6 +357,12 @@ class RAGFlowClient:
                         logger.info(f"RAGFlow returned {len(chunks)} chunks, truncating to top_k={top_k}")
                         chunks = chunks[:top_k]
                     
+                    # 保存查询历史到数据库
+                    try:
+                        self.save_query_history(query, chunks)
+                    except Exception as e:
+                        logger.warning(f"保存查询历史时出错: {e}")
+                    
                     return chunks
                 else:
                     logger.error(f"RAGFlow API error: {data.get('message', 'Unknown error')}")
@@ -317,6 +375,55 @@ class RAGFlowClient:
             logger.error(f"Unexpected error when searching knowledge base: {e}")
             return []
     
+    def save_query_history(self, query: str, results: List[Dict[str, Any]]):
+        """
+        保存查询历史到数据库
+        
+        Args:
+            query: 查询文本
+            results: 查询结果
+        """
+        engine = self.get_database_engine()
+        try:
+            with engine.connect() as conn:
+                from datetime import datetime
+                import json
+                from sqlalchemy import text
+                # 插入查询历史
+                conn.execute(text("""
+                    INSERT INTO query_history (query_text, results) 
+                    VALUES (:query_text, :results)
+                """), {
+                    "query_text": query,
+                    "results": json.dumps(results, ensure_ascii=False)
+                })
+                conn.commit()
+            logger.info(f"查询历史已保存: {query}")
+        except Exception as e:
+            # 如果表不存在，则先创建表再尝试插入
+            if "query_history" in str(e) and "does not exist" in str(e):
+                logger.warning("查询历史表不存在，正在创建...")
+                try:
+                    self.create_table_if_not_exists()
+                    # 重新尝试插入
+                    with engine.connect() as conn:
+                        from datetime import datetime
+                        import json
+                        from sqlalchemy import text
+                        conn.execute(text("""
+                            INSERT INTO query_history (query_text, results) 
+                            VALUES (:query_text, :results)
+                        """), {
+                            "query_text": query,
+                            "results": json.dumps(results, ensure_ascii=False)
+                        })
+                        conn.commit()
+                    logger.info(f"查询历史表创建成功，查询历史已保存: {query}")
+                except Exception as recreate_error:
+                    logger.error(f"尝试创建表并保存查询历史时出错: {recreate_error}")
+            else:
+                logger.error(f"保存查询历史时出错: {e}")
+
     def parse_to_json(self, contents: List[str]) -> List[Dict[str, Any]]:
         """
         将召回的内容列表解析为结构化的JSON格式
@@ -635,3 +742,60 @@ class RAGFlowClient:
             logger.error(f"Error updating document: {e}")
             return False
 
+    async def get_organization_info(self, org_names: List[str]) -> List[Dict[str, Any]]:
+        """
+        根据机构名称列表，在organization表中使用LIKE匹配branch_name和united_name字段，
+        获取其branch_num或者united_num的数据（均优先获取branch_*）
+        
+        Args:
+            org_names: 机构名称列表
+            
+        Returns:
+            包含机构编号信息的字典列表
+        """
+        if not org_names:
+            return []
+            
+        try:
+            engine = self.get_bi_database_engine()
+            results = []
+            
+            with engine.connect() as conn:
+                for org_name in org_names:
+                    # 使用LIKE进行模糊匹配，同时尝试多种匹配方式
+                    query = text("""
+                        SELECT branch_num, branch_name, united_num, united_name
+                        FROM organization 
+                        WHERE branch_name ILIKE :org_name1 
+                           OR branch_short_name ILIKE :org_name1
+                           OR united_name ILIKE :org_name1 
+                           OR united_short_name ILIKE :org_name1
+                           OR branch_name ILIKE :org_name2 
+                           OR branch_short_name ILIKE :org_name2
+                           OR united_name ILIKE :org_name2 
+                           OR united_short_name ILIKE :org_name2
+                        LIMIT 10
+                    """)
+                    
+                    result = conn.execute(query, {
+                        "org_name1": f"%{org_name}%",
+                        "org_name2": f"{org_name}%"
+                    })
+                    rows = result.fetchall()
+                    
+                    for row in rows:
+                        # 优先获取branch_num，如果没有则获取united_num
+                        org_num = row[0] if row[0] is not None else row[2]
+                        org_info = {
+                            "org_name": org_name,
+                            "matched_branch_name": row[1],
+                            "matched_united_name": row[3],
+                            "org_num": org_num
+                        }
+                        results.append(org_info)
+                        
+            return results
+            
+        except Exception as e:
+            logger.error(f"查询机构信息时出错: {e}")
+            return []

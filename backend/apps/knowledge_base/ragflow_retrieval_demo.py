@@ -82,6 +82,50 @@ class KnowledgeRetriever:
         
         return "\n\n".join(context_parts)
 
+    async def query_and_respond(self, question: str, kb_name: str = None):
+        """
+        查询知识库并返回大模型处理结果和预处理后的JSON列表
+        
+        Args:
+            question: 用户提出的问题
+            kb_name: 知识库名称，如果为None则使用第一个可用的知识库
+            
+        Returns:
+            包含大模型返回的JSON格式和知识库召回分片预处理后的JSON列表
+        """
+        # 获取知识库列表
+        kbs = await self.client.get_knowledge_bases()
+        if not kbs:
+            raise ValueError("No knowledge bases found")
+        
+        # 确定要使用的知识库
+        if kb_name:
+            target_kb = next((kb for kb in kbs if kb.get('name') == kb_name), None)
+            if not target_kb:
+                raise ValueError(f"Knowledge base '{kb_name}' not found")
+        else:
+            # 使用第一个知识库
+            target_kb = kbs[0]
+        
+        kb_id = target_kb.get('id')
+        
+        # 召回相关分片
+        chunks = await self.client.search_knowledge_base(kb_id, question, top_k=RAGFlowClient.DEFAULT_TOP_K)
+        
+        # 显示原始召回内容
+        contents = [chunk.get('content', '') for chunk in chunks if chunk.get('content')]
+        
+        # 使用parse_to_json进行预处理
+        parsed_data = self.client.parse_to_json(contents)
+        
+        # 这里可以调用大模型对召回内容进行进一步处理
+        # 暂时返回预处理的数据
+        return {
+            "question": question,
+            "llm_response": {},  # 实际应用中这里应该是大模型的响应
+            "parsed_knowledge": parsed_data
+        }
+
 
 async def main():
     # RAG配置 - 请根据实际情况修改
@@ -115,13 +159,18 @@ async def main():
             content = chunk.get('content', '')
             # similarity = chunk.get('vector_similarity', chunk.get('similarity', 'N/A'))
             # print(f"\n--- 分片 {i} (相似度: {similarity}) ---")
-            logger.info(content)
+            # 只打印内容的前200个字符以避免日志过于冗长
+            logger.info(f"Chunk {i}: {content[:200]}{'...' if len(content) > 200 else ''}")
         
         # 提取内容文本用于解析
         contents = [chunk.get('content', '') for chunk in chunks if chunk.get('content')]
         
         # 使用parse_to_json进行预处理
         parsed_data = client.parse_to_json(contents)
+        
+        # 显示解析后的结果
+        print("\nParsed Data:")
+        print(json.dumps(parsed_data, ensure_ascii=False, indent=2))
 
     except Exception as e:
         print(f"Error: {e}")

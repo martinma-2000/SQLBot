@@ -8,6 +8,7 @@ from apps.mcp import mcp
 from apps.system.api import login, user, aimodel, workspace, assistant
 from apps.scheduler.api import router as scheduler_router
 from apps.terminology.api import terminology
+from apps.knowledge_base.api.knowledge_api import router as knowledge_router
 
 api_router = APIRouter()
 api_router.include_router(login.router)
@@ -23,3 +24,4 @@ api_router.include_router(dashboard_api.router)
 api_router.include_router(mcp.router)
 api_router.include_router(scheduler_router)
 api_router.include_router(table_relation.router)
+api_router.include_router(knowledge_router)
