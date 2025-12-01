@@ -1,3 +1,4 @@
+import datetime
 from typing import Optional
 import asyncio
 import io
@@ -150,6 +151,26 @@ async def delete(session: SessionDep, chart_id: int):
 async def start_chat(session: SessionDep, current_user: CurrentUser, create_chat_obj: CreateChat):
     try:
         return create_chat(session, current_user, create_chat_obj)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+
+@router.post("/start-indicator")
+async def start_indicator_chat(session: SessionDep, current_user: CurrentUser):
+    """
+    Create a new chat session for indicator queries.
+    This is similar to /start but does not require a datasource.
+    """
+    try:
+        # Create a chat without requiring a datasource
+        create_chat_obj = CreateChat(
+            question=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            origin=0  # 0: default, 1: mcp, 2: assistant
+        )
+        return create_chat(session, current_user, create_chat_obj, require_datasource=False)
     except Exception as e:
         raise HTTPException(
             status_code=500,

@@ -294,7 +294,7 @@ def list_generate_chart_logs(session: SessionDep, chart_id: int) -> List[ChatLog
 
 def create_chat(session: SessionDep, current_user: CurrentUser, create_chat_obj: CreateChat,
                 require_datasource: bool = True) -> ChatInfo:
-    if not create_chat_obj.datasource and require_datasource:
+    if require_datasource and not create_chat_obj.datasource:
         raise Exception("Datasource cannot be None")
 
     if not create_chat_obj.question or create_chat_obj.question.strip() == '':
@@ -330,12 +330,31 @@ def create_chat(session: SessionDep, current_user: CurrentUser, create_chat_obj:
         chat_info.datasource_name = ds.name
         chat_info.ds_type = ds.type
 
+    # Only create initial record if we require a datasource and have one
     if require_datasource and ds:
         # generate first empty record
         record = ChatRecord()
         record.chat_id = chat.id
         record.datasource = ds.id
         record.engine_type = ds.type_name
+        record.first_chat = True
+        record.finish = True
+        record.create_time = datetime.datetime.now()
+        record.create_by = current_user.id
+
+        _record = ChatRecord(**record.model_dump())
+
+        session.add(record)
+        session.flush()
+        session.refresh(record)
+        _record.id = record.id
+        session.commit()
+
+        chat_info.records.append(_record)
+    elif not require_datasource:
+        # For indicator chats, we still want to create an initial record but without datasource
+        record = ChatRecord()
+        record.chat_id = chat.id
         record.first_chat = True
         record.finish = True
         record.create_time = datetime.datetime.now()
