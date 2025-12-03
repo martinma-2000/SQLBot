@@ -12,6 +12,7 @@ router = APIRouter()
 # RAG配置
 ragflow_base_url = os.getenv("RAGFLOW_BASE_URL", "http://localhost:180")
 ragflow_api_key = os.getenv("RAGFLOW_API_KEY", "ragflow-U3ZDQwZTRlYjNhNDExZjA5MzkwNmUzNT")
+knowledge_base_id = os.getenv("KNOWLEDGE_BASE_ID", "abcd")
 
 
 class KnowledgeQueryRequest(BaseModel):
@@ -53,8 +54,15 @@ async def query_knowledge_base(request: KnowledgeQueryRequest):
             if not target_kb:
                 raise HTTPException(status_code=404, detail=f"Knowledge base '{request.kb_name}' not found")
         else:
-            # 使用第一个知识库
-            target_kb = kbs[0]
+            # 使用配置的默认知识库ID或者第一个知识库
+            if knowledge_base_id != "abcd":
+                target_kb = next((kb for kb in kbs if kb.get('id') == knowledge_base_id), None)
+                if not target_kb:
+                    # 如果配置的ID找不到，则使用第一个知识库
+                    target_kb = kbs[0]
+            else:
+                # 使用第一个知识库
+                target_kb = kbs[0]
         
         kb_id = target_kb.get('id')
         
