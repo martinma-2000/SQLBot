@@ -6,7 +6,7 @@ from .parameter_generator import generate_input_parameters
 from .data_fetcher import call_data_api
 
 
-def execute_indicator_pipeline(user_query: str, context: dict = None) -> dict:
+def execute_indicator_pipeline(user_query: str, org_code, rag_retrieved) -> dict:
     """
     Coordinate all modules to complete indicator execution pipeline
     """
