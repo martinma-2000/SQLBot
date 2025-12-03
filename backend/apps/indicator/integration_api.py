@@ -28,6 +28,7 @@ class IndicatorPipelineResponse(BaseModel):
     parameters: str
     knowledge_response: Optional[Dict[Any, Any]]
     error: Optional[str]
+    record_id: Optional[int] = None
 
 
 @router.post("/indicator/pipeline", response_model=IndicatorPipelineResponse)
@@ -140,7 +141,8 @@ async def run_indicator_pipeline(request: IndicatorPipelineRequest, session: Ses
             sql=pipeline_result.get("sql"),
             parameters=pipeline_result.get("parameters"),
             knowledge_response=knowledge_response.dict() if knowledge_response else None,
-            error=pipeline_result.get("error")
+            error=pipeline_result.get("error"),
+            record_id=record_id
         )
         
     except HTTPException:
