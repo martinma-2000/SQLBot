@@ -23,9 +23,9 @@ class IndicatorPipelineRequest(BaseModel):
 
 class IndicatorPipelineResponse(BaseModel):
     success: bool
-    data: Optional[Dict[Any, Any]]
+    data: str
     sql: Optional[str]
-    parameters: Optional[Dict[Any, Any]]
+    parameters: str
     knowledge_response: Optional[Dict[Any, Any]]
     error: Optional[str]
 
