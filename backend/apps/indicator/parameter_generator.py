@@ -9,7 +9,7 @@ def generate_input_parameters(sys_prompt, user_prompt):
     Call LLM to generate input parameters for query
     """
     # 服务地址
-    url = "http://IP:PORT/v1/chat/completions"
+    url = "http://10.10.194.50:1025/v1/chat/completions"
 
     # 构造消息体
     messages = [
@@ -22,6 +22,9 @@ def generate_input_parameters(sys_prompt, user_prompt):
         "model": "Qwen3-32b",
         "messages": messages,
         "enable_thinking": False,
+        "chat_template_kwargs": {
+            "enable_thinking": False
+        },
         "stream": False,
         "temperature": 0.0,
         "seed": 12345,
@@ -34,8 +37,7 @@ def generate_input_parameters(sys_prompt, user_prompt):
         response = requests.post(
             url,
             headers={"Content-Type": "application/json"},
-            json=payload,
-            timeout=30
+            json=payload
         )
         response.raise_for_status()
 
