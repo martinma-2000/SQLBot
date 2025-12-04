@@ -30,7 +30,7 @@ def execute_indicator_pipeline(user_query: str, org_code: str='', rag_retrieved:
         # 3. 根据生成的 SQL 构造系统提示词及用户提示词
         # 这里可以根据SQL内容进一步优化参数生成的提示词
         indto_sys_prompt, indto_user_prompt = generate_indto_prompt(generated_sql)
-        
+
 
         # 4. 调用 LLM 生成 API 的入参
         api_params = generate_input_parameters(indto_sys_prompt, indto_user_prompt)

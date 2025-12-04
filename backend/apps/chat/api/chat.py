@@ -251,6 +251,7 @@ async def stream_sql(session: SessionDep, current_user: CurrentUser, request_que
         sql_content = ""
         chart_content = ""
         chart_data = None
+        record_id = None
         
         for chunk in result_data:
             if isinstance(chunk, str):
@@ -274,6 +275,9 @@ async def stream_sql(session: SessionDep, current_user: CurrentUser, request_que
                                     chart_content = content
                             else:
                                 final_result["content"] += content + "\n"
+                        # Capture record_id when present
+                        if chunk_data.get('type') == 'id':
+                            record_id = chunk_data.get('id')
                         if chunk_data.get('type'):
                             final_result["type"] = chunk_data['type']
                         if chunk_data.get('data'):
@@ -286,6 +290,9 @@ async def stream_sql(session: SessionDep, current_user: CurrentUser, request_que
             elif isinstance(chunk, dict):
                 if chunk.get('content'):
                     final_result["content"] += chunk['content'] + "\n"
+                # Capture record_id when present
+                if chunk.get('type') == 'id':
+                    record_id = chunk.get('id')
                 if chunk.get('type'):
                     final_result["type"] = chunk['type']
                 if chunk.get('data'):
@@ -300,6 +307,10 @@ async def stream_sql(session: SessionDep, current_user: CurrentUser, request_que
             final_result["content"] = sql_content
         elif chart_content:
             final_result["content"] = chart_content
+            
+        # Add record_id to the final result if found
+        if record_id:
+            final_result["record_id"] = record_id
             
         # If no content was collected, use the last chunk
         if not final_result["content"] and result_data:
