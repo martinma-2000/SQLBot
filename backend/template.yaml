@@ -706,22 +706,45 @@ template:
         <rule>
           【输出一致性】SQL中每个选择字段都必须明确别名（或使用原字段名）；该别名将作为后续图表JSON的"value"字段使用，需与SQL中的别名完全一致。
         </rule>
-          【别名规范】统一使用小写英文字母、数字、下划线（lower_snake_case），不含空格、中文或标点；长度≤30；禁止使用数据库关键字，如：date’。
         <rule>
-          【函数列约束】凡使用函数（如COUNT/CAST/DATE_TRUNC等）生成的列，必须显式指定别名，并在图表JSON中使用该别名；严禁在JSON中使用函数表达式作为"value"。
+          【别名规范】统一使用小写英文字母、数字、下划线（lower_snake_case），不含空格、中文或标点；长度≤30；禁止使用数据库关键字，如：date。
         </rule>
         <rule>
-          SQL查询的字段若是函数字段，如 COUNT(),CAST() 等，必须加上别名
+          【函数列约束】禁止使用函数
         </rule>
         <rule>
           生成SQL时，必须避免与数据库关键字冲突，如：
             - date
         </rule>
         <rule>
+          如果生成SQL的字段内有时间格式的字段:
+            - 无论表中示例数据条数如何，都假设完整覆盖所需时间范围；
+            - 若提问中没有指定查询顺序，则默认按时间升序排序
+            - 若提问是时间，且没有指定具体格式，则格式化为yyyy-MM-dd HH:mm:ss的格式
+            - 若提问是日期，且没有指定具体格式，则格式化为yyyy-MM-dd的格式
+            - 若提问是年月，且没有指定具体格式，则格式化为yyyy-MM的格式
+            - 若提问是年，且没有指定具体格式，则格式化为yyyy的格式
+            - 生成时间条件时，可以使用用户提供的 current-time 进行日期计算，禁止使用以下函数：
+              - now()
+              - current_date()
+              - current_timestamp()
+              - localtimestamp()
+              - sysdate()
+            - 生成的格式化语法需要适配对应的数据库引擎。
+        </rule>
+        <rule>
+          org_code 字段条件：
+            - 如果 org_code 为空，则不添加该条件
+        </rule>
+        <rule>
           如果用户没有指定数据条数的限制，输出的查询SQL必须加上1000条的数据条数限制；如果用户指定的限制大于1000，则按1000处理.
         </rule>
         <rule>
-          查询的字段必须要包含：机构编码、
+          查询的字段必须要包含：
+          - org_ecd
+          - idx_ecd
+          - idx_val
+          - data_dt
         </rule>
       </Rules>
 
@@ -734,7 +757,6 @@ template:
       | CREATE TABLE `cds_org_idx_rslt_anlyz`(                              |
       |   `data_dt` date COMMENT '数据日期',                                    | 
       |   `org_ecd` string COMMENT '机构编码',                                  |
-      |   `dt_frq_idn` string COMMENT '日期频度标识',                           |
       |   `idx_ecd` string COMMENT '指标编码',                                  | 
       |   `dmns_cd1` string COMMENT '维度代码1',                                |
       |   `dmns_cd2` string COMMENT '维度代码2',                                | 
@@ -785,11 +807,7 @@ template:
       |   `idx_val_l10mend` string COMMENT '指标值_上10月末',                   |
       |   `idx_val_l11mend` string COMMENT '指标值_上11月末',                   |
       |   `idx_val_l12mend` string COMMENT '指标值_上12月末',                   |
-      |   `etl_task_apltn` string COMMENT 'ETL任务名称',                        |
-      |   `data_load_tm` timestamp COMMENT '数据加载时间')                      |
       | COMMENT '机构类指标结果分析(指标趋势)'                                  |
-      | PARTITIONED BY (                                                        |
-      |   `trans_dt` date)                                                      |
       | ROW FORMAT SERDE                                                        |
       |   'org.apache.hadoop.hive.ql.io.orc.OrcSerde'                           |
       | STORED AS INPUTFORMAT                                                   |
@@ -812,9 +830,12 @@ template:
         <current-time>
           {current_time}
         </current-time>
-        <org-code>
-          {org_code}
-        </org-code>
+        <org_ecd>
+          {org_ecd}
+        </org_ecd>
+        <idx_ecd>
+          {idx_ecd}
+        </idx_ecd>
         <rag-retrieved>
           {rag_retrieved}
         </rag-retrieved>
@@ -834,7 +855,7 @@ template:
       该结构为调用取数API的部分入参。
       ### 结构
       ```json
-      {{"QRYID":"h_csttranshis","CONDT":{{"":[{{"txndt":{{"GE":"20150101","LT":"20160106"}}}}],"AND":[{{"txnccy":{{"EQ":"01"}}}}],"OR":[{{"orgid":{{"EQ":"27080608"}}}}]}},"RESP":["certno","remark"],"ORDER":{{"acctid":"ASC","orgid":"DESC"}}}}
+      {{"QRYID":"h_csttranshis","CONDT":{{"":{{"txndt":{{"GE":"2015-01-01","LT":"2016-01-06"}}}},"AND":{{"txnccy":{{"EQ":"01"}}}},"OR":{{"orgid":{{"EQ":"27080608"}}}}}},"RESP":["certno","remark"],"ORDER":{{"acctid":"ASC","orgid":"DESC"}}}}
       ```
       ### 规则
       <Rules>
@@ -843,6 +864,16 @@ template:
             - 含义：查询ID，整个系统名称唯一
             - 规则：一般为表名
             - 示例："h_csttranshis" 表示客户交易历史表
+        </rule>
+        <rule>
+          HBCF:
+            - 含义：Hbase表列族名。当传入HBCF时，必须传入HBTAB。传入该参数时，查询模式为ES+HBase，需保证ES和HBase主键一致。该字段固定取值为'c'
+            - 规则：默认取值为 'c'
+        </rule>
+        <rule> 
+          HBTAB:
+            - 含义：Hbase表名。当传入HBTAB时，必须传入HBCF。传入该参数时，查询模式为ES+HBase，需保证ES和HBase主键一致。
+            - 规则：与 QRYID 字段保持一致
         </rule>
         <rule>
           CONDT:
@@ -865,25 +896,18 @@ template:
             - 结构说明：
               - 根条件以空字符串为键，条件作为值写在对象中（如 {{"":{{"txndt": {{"GE": "20150101"}}}}}}）
               - 使用 "AND" 或 "OR" 字段进行多条件组合，值为子条件对象
-              - 示例解析："CONDT": {{"": [{{"txndt": {{"GE": "20150101", "LT": "20160106"}}}}], "AND": [{{"txnccy": {{"EQ": "01"}}}}], "OR": [{{ "orgid": {{"EQ": "27080608"}}}}]}}  表示：交易日期 ≥ 20150101 且 < 20160106，且交易币种 = 01，或机构号 = 27080608。
+              - 示例解析："CONDT": {{"": {{"txndt": {{"GE": "2015-01-01", "LT": "2016-01-06"}}}}, "AND": {{"txnccy": {{"EQ": "01"}}}}], "OR": {{ "orgid": {{"EQ": "27080608"}}}}}}  表示：交易日期 ≥ 2015-01-01 且 < 2016-01-06，且交易币种 = 01，或机构号 = 27080608。
         </rule>
         <rule>
           RESP：
             - 含义：指定查询结果中需要返回的字段。
-            - 规则：以数组形式提供字段名；若使用函数，需配合 AS 别名。
+            - 规则：
+              - 以数组形式提供字段名
+              - 若使用函数，需配合 AS 别名。
+              - 如果使用别名，必须按照 '原字段名 AS 别名' 的形式填写
             - 示例：["certno", "remark"] 表示仅返回证件号和备注字段。
             - 函数示例（在 SQL 中）：
               SUM(ACCT) AS ACCT_SUM, TRIM(CUST_NAME) AS CUST_NAME
-        </rule>
-          GRP：
-            - 含义：用于聚合查询时的 GROUP BY 字段。
-            - 规则：当 RESP 中包含聚合函数（如 SUM, COUNT 等）时必须指定。
-            - 示例：["CUST_NO", "CUST_NAME"]
-        <rule>
-          HAV：
-            - 含义：对应 SQL 中的 HAVING 子句，用于对聚合结果进行过滤。
-            - 规则：字符串形式书写表达式，支持逻辑运算。
-            - 示例："HAV": "SUM(ACCT) > 10000 AND COUNT(TX_BAL) < 1000"
         </rule>
         <rule>
           ORDER：
@@ -891,10 +915,13 @@ template:
             - 结构：对象形式，键为字段名，值为排序方向（ASC 升序，DESC 降序）。
             - 示例：{{"acctid": "ASC", "orgid": "DESC"}}
         </rule>
+        <rule>
+          日期条件：严格按照SQL中的日期条件值来进行转换，严禁转换日期格式
+        </rule>
       </Rules>
       ### 示例
       ```json
-      {{"QRYID":"h_csttranshis","CONDT":{{"":[{{"txndt":{{"GE":"20150101","LT":"20160106"}}}}],"AND":[{{"txnccy":{{"EQ":"01"}}}}],"OR":[{{"orgid":{{"EQ":"27080608"}}}}]}},"RESP":["certno","remark"],"ORDER":{{"acctid":"ASC","orgid":"DESC"}}}}
+      {{"QRYID":"h_csttranshis","CONDT":{{"":{{"txndt":{{"GE":"2015-01-01","LT":"2016-01-06"}}}},"AND":{{"txnccy":{{"EQ":"01"}}}},"OR":{{"orgid":{{"EQ":"27080608"}}}}}},"RESP":["certno","remark"],"ORDER":{{"acctid":"ASC","orgid":"DESC"}}}}
       ```
 
       ## 输出格式
@@ -903,4 +930,3 @@ template:
     user: |
       用户输入的SQL是：
       {generated_sql}
-

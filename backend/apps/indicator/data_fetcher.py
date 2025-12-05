@@ -286,5 +286,9 @@ def format_api_response(response: dict) -> dict:
         data = response.get('BDP_QRY_OBJ_ASBG', [])
     except Exception as e:
         SQLBotLogUtil.error(f'取数结果解析报错：{str(e)}')
-        data = []
+        data = ""
+
+    if not data:
+        data = ""
+
     return data

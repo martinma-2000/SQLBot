@@ -5,17 +5,19 @@ from apps.template.generate_indicator_indto.generator import get_sql_template, g
 from common.utils.utils import SQLBotLogUtil
 
 
-def generate_sql_prompt(org_code: str, rag_retrieved: str, question: str):
+def generate_sql_prompt(org_code: str, index_code: str, rag_retrieved: str, question: str):
     """
     Generate query prompt based on user input and context
     """
 
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    org_code = "" if org_code=="00000000" else org_code
 
     SQLBotLogUtil.info('Generating sql prompt ... ...')
     sql_sys_question = get_sql_template()['system'].format()
-    sql_user_question = get_sql_template()['user'].format(current_time='2025-12-02 11:00:00',
-                                                          org_code=org_code, 
+    sql_user_question = get_sql_template()['user'].format(current_time=current_time,
+                                                          org_ecd=org_code,
+                                                          idx_ecd=index_code,
                                                           rag_retrieved=rag_retrieved, 
                                                           user_query=question)
     SQLBotLogUtil.info('Generated SQL Prompt is:' + '*'*30)
