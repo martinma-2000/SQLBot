@@ -834,6 +834,8 @@ async def concatenate_excels(
         dataframes = []
         for file_path in file_paths:
             df = processor.convert_multi_to_single_header(file_path)
+            # 处理包含"编码"的列，将其转换为字符串类型
+            df = processor.convert_encoding_columns_to_str(df)
             dataframes.append(df)
 
         # 拼接所有DataFrame

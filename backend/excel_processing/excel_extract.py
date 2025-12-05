@@ -469,3 +469,21 @@ class ExcelHeaderProcessor:
             print(f"无法解析日期字符串: {date_str}, 错误: {e}")
             return pd.NaT  # 返回 Not a Time 表示无效时间
 
+    def convert_encoding_columns_to_str(self, df):
+        """
+        检查DataFrame中是否包含含有"编码"关键字的列，如果有则将这些列的数据类型转换为字符串
+        
+        参数:
+        df: 输入的DataFrame
+        
+        返回:
+        处理后的DataFrame
+        """
+        # 查找包含"编码"关键字的列
+        encoding_columns = [col for col in df.columns if "编码" in str(col)]
+        
+        # 将这些列的数据类型转换为字符串
+        for col in encoding_columns:
+            df[col] = df[col].astype(str)
+            
+        return df
