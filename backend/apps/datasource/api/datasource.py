@@ -834,6 +834,8 @@ async def concatenate_excels(
         dataframes = []
         for file_path in file_paths:
             df = processor.convert_multi_to_single_header(file_path)
+            # 处理包含"编码"的列，将其转换为字符串类型
+            df = processor.convert_encoding_columns_to_str(df)
             dataframes.append(df)
 
         # 拼接所有DataFrame
@@ -973,6 +975,11 @@ def insert_pg(df, tableName, engine, mode: str = 'replace', preserve_columns: bo
     for i in range(len(df.dtypes)):
         if str(df.dtypes[i]) == 'uint64':
             df[str(df.columns[i])] = df[str(df.columns[i])].astype('string')
+
+    # 将包含"编码"的列转换为字符串类型，避免被识别为数值类型
+    for col in df.columns:
+        if "编码" in str(col):
+            df[col] = df[col].astype('string')
 
     # 列名处理
     original_columns = df.columns.tolist()

@@ -4,6 +4,7 @@
 import pandas as pd
 from typing import List
 import re
+from excel_processing.excel_extract import ExcelHeaderProcessor
 
 
 def _is_explanatory_text_row(row):
@@ -82,16 +83,21 @@ def remove_tail_rows_df(df: pd.DataFrame) -> pd.DataFrame:
     if invalid_rows:
         df = df.iloc[:last_valid_index + 1]
     return df
-def concatenate_dataframes(dataframes: List[pd.DataFrame], primary_key_col: int = 0) -> pd.DataFrame:
 
+def concatenate_dataframes(dataframes: List[pd.DataFrame], primary_key_col: int = 0) -> pd.DataFrame:
     if not dataframes:
         raise ValueError("输入的DataFrame列表不能为空")
+    
     # 统一清理所有 DataFrame 的尾部无效行
     try:
         dataframes = [remove_tail_rows_df(df) for df in dataframes]
+        # 处理包含"编码"的列，将其转换为字符串类型
+        processor = ExcelHeaderProcessor()
+        dataframes = [processor.convert_encoding_columns_to_str(df) for df in dataframes]
     except Exception as e:
         raise ValueError(f"清理尾部无效行时发生错误:{str(e)}")
-        # 2.统一列名校验
+    
+    # 2.统一列名校验
     reference_columns = list(dataframes[0].columns)
     for i, df in enumerate(dataframes[1:], 1):
         if list(df.columns) != reference_columns:

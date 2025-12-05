@@ -1,6 +1,3 @@
-"""
-用法：多张表的时间列相同，但其他列不同，将多张表横向合并
-"""
 import pandas as pd
 from typing import List
 from excel_processing.excel_extract import ExcelHeaderProcessor
@@ -50,6 +47,8 @@ def merge_dataframes_horizontally(dataframes: List[pd.DataFrame], time_col: int 
     try:
         processor = ExcelHeaderProcessor(separator="_")
         dataframes = [processor.remove_tail_rows(df) for df in dataframes]
+        # 处理包含"编码"的列，将其转换为字符串类型
+        dataframes = [processor.convert_encoding_columns_to_str(df) for df in dataframes]
     except Exception as e:
         raise ValueError(f"清理尾部无效行时发生错误: {str(e)}")
     
