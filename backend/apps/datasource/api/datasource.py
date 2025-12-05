@@ -976,6 +976,11 @@ def insert_pg(df, tableName, engine, mode: str = 'replace', preserve_columns: bo
         if str(df.dtypes[i]) == 'uint64':
             df[str(df.columns[i])] = df[str(df.columns[i])].astype('string')
 
+    # 将包含"编码"的列转换为字符串类型，避免被识别为数值类型
+    for col in df.columns:
+        if "编码" in str(col):
+            df[col] = df[col].astype('string')
+
     # 列名处理
     original_columns = df.columns.tolist()
 
