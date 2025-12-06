@@ -124,7 +124,7 @@ async def get_common_questions(
         # 指标类型：返回问题G, H, I，数据源ID为0
         return DataSourceQuestionResponse(
             datasource_id=0,
-            questions=["近半年 自助设备新增台数维度为ATM自动取款机的季度指标数据", "今年榆林支持国密算法自助设备台数维度为ACM发卡机年度指标数据", "省联社个人网银资金类交易笔数月度数据"]
+            questions=["陕西信合银行卡数量统计", "今年五月份互金各年龄连续未登录二三级用户数", "统计一下各个机构的有账户的 个人客户数"]
         )
     elif question_type == CommonQuestionType.REPORTS:
         # 报表类型：查找名为"存款"的数据源
@@ -141,7 +141,7 @@ async def get_common_questions(
         # 返回数据源ID和问题A, B, C
         return DataSourceQuestionResponse(
             datasource_id=datasource.id,
-            questions=["查询省联社近一年数字银行业务月交易总笔数及数字银行业务月交易总金额", "使用柱状图展示省联社2025年5月底存量16-60岁三级注册用户数量及16-60岁用户月活跃数", "查询省联社2025年5月底收单商户交易笔数、收单商户交易金额、收单商户手续费收入金额、收单商户手续费支出金额"]
+            questions=["各机构今年5月份金融e站设备数量分别是多少", "渭南和宝鸡今年5月份贷款发放了多少笔", "今年5月份客户覆盖率排名前三的机构有哪些"]
         )
 
 
