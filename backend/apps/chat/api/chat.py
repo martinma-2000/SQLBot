@@ -7,7 +7,7 @@ import traceback
 import numpy as np
 import orjson
 import pandas as pd
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse, JSONResponse
 from sqlalchemy import and_, select
 from pydantic import BaseModel
@@ -27,8 +27,22 @@ class HistoryQueryResponse(BaseModel):
     data: list
 
 @router.get("/list")
-async def chats(session: SessionDep, current_user: CurrentUser):
-    return list_chats(session, current_user)
+async def chats(session: SessionDep, current_user: CurrentUser, type: str = Query(None, description="")):
+    all_chats = list_chats(session, current_user)
+    
+    if not type:
+        # If no type parameter, return all chats
+        return all_chats
+    
+    if type == "reports":
+        # Return chats where datasource is not None (associated with a datasource)
+        return [chat for chat in all_chats if chat.datasource is not None]
+    elif type == "indicators":
+        # Return chats where datasource is None (not associated with a datasource)
+        return [chat for chat in all_chats if chat.datasource is None]
+    else:
+        # If type parameter is not recognized, return all chats
+        return all_chats
 
 
 # 添加新的历史查询接口

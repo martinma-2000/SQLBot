@@ -127,8 +127,8 @@ async def get_common_questions(
             questions=["近半年 自助设备新增台数维度为ATM自动取款机的季度指标数据", "今年榆林支持国密算法自助设备台数维度为ACM发卡机年度指标数据", "省联社个人网银资金类交易笔数月度数据"]
         )
     elif question_type == CommonQuestionType.REPORTS:
-        # 报表类型：查找名为"存款测试"的数据源
-        datasource = session.query(CoreDatasource).filter(CoreDatasource.name == "存款测试").first()
+        # 报表类型：查找名为"存款"的数据源
+        datasource = session.query(CoreDatasource).filter(CoreDatasource.name == "存款").first()
         
         # 如果找不到"存款测试"数据源，获取第一个可用的数据源
         if not datasource:
