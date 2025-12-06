@@ -7,7 +7,7 @@ from apps.indicator.data_fetcher import call_data_api
 from common.utils.utils import SQLBotLogUtil
 
 
-def execute_indicator_pipeline(user_query: str, org_code: str='', rag_retrieved: str=''):
+def execute_indicator_pipeline(user_query: str, org_code: str='', rag_retrieved: str='', index_code: str=''):
     """
     Coordinate all modules to complete indicator execution pipeline
     """
@@ -15,11 +15,12 @@ def execute_indicator_pipeline(user_query: str, org_code: str='', rag_retrieved:
     SQLBotLogUtil.info('入参信息：')
     SQLBotLogUtil.info(f'user_query -> {user_query}')
     SQLBotLogUtil.info(f'org_code -> {org_code}')
+    SQLBotLogUtil.info(f'index_code -> {index_code}')
     SQLBotLogUtil.info(f'rag_retrieved -> {rag_retrieved}')
 
     try:
         # 1. 根据用户问题、指标信息片段、机构名称及编码生成系统提示词及用户提示词
-        sql_sys_prompt, sql_user_prompt = generate_sql_prompt(org_code, rag_retrieved, user_query)
+        sql_sys_prompt, sql_user_prompt = generate_sql_prompt(org_code, index_code, rag_retrieved, user_query)
 
         # 2. 调用 LLM 生成 SQL
         generated_sql = generate_sql_from_prompt(sql_sys_prompt, sql_user_prompt)
