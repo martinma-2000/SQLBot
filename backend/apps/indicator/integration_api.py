@@ -80,10 +80,10 @@ class IndicatorPipelineResponse(BaseModel):
     success: bool
     data: str
     sql: Optional[str]
-    parameters: str
+    parameters: Optional[Any]
     knowledge_response: Optional[Dict[Any, Any]]
     error: Optional[str]
-    record_id: Optional[int] = None
+    record_id: Optional[Any] = None
 
 
 @router.post("/indicator/pipeline", response_model=IndicatorPipelineResponse)
@@ -189,8 +189,12 @@ async def run_indicator_pipeline(request: IndicatorPipelineRequest, session: Ses
                 import orjson
                 import json
                 try:
-                    # 尝试将parameters解析为JSON对象
-                    params_dict = json.loads(pipeline_result["parameters"])
+                    resp_params = pipeline_result["parameters"]
+                    # 这个是md格式的，去除掉前缀和后缀
+                    resp_params = resp_params[resp_params.find("```json") + 7:resp_params.rfind("```")]
+                    resp_params = resp_params.strip()
+                    params_dict = json.loads(resp_params)
+
                     resp_fields = params_dict.get("RESP", [])
                     columns = []
                     for field in resp_fields:
@@ -222,7 +226,7 @@ async def run_indicator_pipeline(request: IndicatorPipelineRequest, session: Ses
             success=pipeline_result["success"],
             data=pipeline_result.get("data"),
             sql=pipeline_result.get("sql"),
-            parameters=pipeline_result.get("parameters"),
+            parameters=chart_data,
             knowledge_response=knowledge_response.dict() if knowledge_response else None,
             error=pipeline_result.get("error"),
             record_id=record_id
