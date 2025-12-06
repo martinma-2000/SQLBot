@@ -410,12 +410,54 @@ def register_api_fetch_jobs(app: FastAPI) -> None:
     if not raw:
         SQLBotLogUtil.info("[APS] no API_FETCH_JOBS configured; skipping")
         return
-    try:
-        jobs = json.loads(raw)
-        if not isinstance(jobs, list):
-            raise ValueError("API_FETCH_JOBS must be a JSON array")
-    except Exception as e:
-        raise RuntimeError(f"invalid API_FETCH_JOBS JSON: {e}")
+    
+    # Check if raw is in the new pipe-delimited format
+    if '\\' in raw or '|' in raw:
+        # Handle the new pipe-delimited format
+        jobs = []
+        lines = raw.split(',\\') if ',\\' in raw else raw.split(',')
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            # Remove trailing commas and backslashes
+            line = line.rstrip(',\\')
+            parts = line.split('|')
+            if len(parts) >= 4:  # Minimum required parts
+                job = {}
+                job["id"] = parts[0]
+                job["cron"] = parts[1]
+                # Determine if this is a bi_excel job or regular API job
+                if parts[2] == "bi_excel":
+                    job["type"] = parts[2]
+                    job["endpoint"] = parts[3]
+                    if len(parts) > 4:
+                        job["period_type"] = parts[4]
+                    if len(parts) > 5:
+                        job["day_offset"] = parts[5]
+                    if len(parts) > 6:
+                        job["p_unit"] = parts[6]
+                else:
+                    job["endpoint"] = parts[2]
+                    if len(parts) > 3:
+                        job["method"] = parts[3]
+                    if len(parts) > 4:
+                        job["period_type"] = parts[4]
+                    if len(parts) > 5:
+                        job["month_offset"] = parts[5]
+                    if len(parts) > 6:
+                        job["timeout"] = parts[6]
+                    if len(parts) > 7:
+                        job["separator"] = parts[7]
+                jobs.append(job)
+    else:
+        # Handle the original JSON format
+        try:
+            jobs = json.loads(raw)
+            if not isinstance(jobs, list):
+                raise ValueError("API_FETCH_JOBS must be a JSON array")
+        except Exception as e:
+            raise RuntimeError(f"invalid API_FETCH_JOBS format: {e}")
 
     scheduler: AsyncIOScheduler = getattr(app.state, "scheduler", None)
     if not scheduler:
