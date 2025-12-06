@@ -1,5 +1,5 @@
 # apps/indicator/integration_api.py
-
+import json
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
@@ -13,6 +13,61 @@ from apps.chat.curd.chat import create_chat, save_question, save_sql, save_sql_e
 from common.core.deps import SessionDep, CurrentUser
 
 router = APIRouter()
+
+IDX_COLUMNS = {
+    "data_dt": "数据日期",
+    "org_ecd": "机构编码",
+    "idx_ecd": "指标编码",
+    "dmns_cd1": "维度代码1",
+    "dmns_cd2": "维度代码2",
+    "dmns_cd3": "维度代码3",
+    "dmns_cd4": "维度代码4",
+    "dmns_cd5": "维度代码5",
+    "idx_val": "指标值_当天",
+    "idx_val_2d": "指标值_2天前",
+    "idx_val_3d": "指标值_3天前",
+    "idx_val_4d": "指标值_4天前",
+    "idx_val_5d": "指标值_5天前",
+    "idx_val_6d": "指标值_6天前",
+    "idx_val_7d": "指标值_7天前",
+    "idx_val_8d": "指标值_8天前",
+    "idx_val_9d": "指标值_9天前",
+    "idx_val_10d": "指标值_10天前",
+    "idx_val_11d": "指标值_11天前",
+    "idx_val_12d": "指标值_12天前",
+    "idx_val_13d": "指标值_13天前",
+    "idx_val_14d": "指标值_14天前",
+    "idx_val_15d": "指标值_15天前",
+    "idx_val_16d": "指标值_16天前",
+    "idx_val_17d": "指标值_17天前",
+    "idx_val_18d": "指标值_18天前",
+    "idx_val_19d": "指标值_19天前",
+    "idx_val_20d": "指标值_20天前",
+    "idx_val_21d": "指标值_21天前",
+    "idx_val_22d": "指标值_22天前",
+    "idx_val_23d": "指标值_23天前",
+    "idx_val_24d": "指标值_24天前",
+    "idx_val_25d": "指标值_25天前",
+    "idx_val_26d": "指标值_26天前",
+    "idx_val_27d": "指标值_27天前",
+    "idx_val_28d": "指标值_28天前",
+    "idx_val_29d": "指标值_29天前",
+    "idx_val_30d": "指标值_30天前",
+    "idx_val_lyst": "指标值_上年同期",
+    "idx_val_lsyed": "指标值_上年末",
+    "idx_val_lmend": "指标值_上月末",
+    "idx_val_l2mend": "指标值_上2月末",
+    "idx_val_l3mend": "指标值_上3月末",
+    "idx_val_l4mend": "指标值_上4月末",
+    "idx_val_l5mend": "指标值_上5月末",
+    "idx_val_l6mend": "指标值_上6月末",
+    "idx_val_l7mend": "指标值_上7月末",
+    "idx_val_l8mend": "指标值_上8月末",
+    "idx_val_l9mend": "指标值_上9月末",
+    "idx_val_l10mend": "指标值_上10月末",
+    "idx_val_l11mend": "指标值_上11月末",
+    "idx_val_l12mend": "指标值_上12月末"
+}
 
 
 class IndicatorPipelineRequest(BaseModel):
@@ -105,25 +160,52 @@ async def run_indicator_pipeline(request: IndicatorPipelineRequest, session: Ses
             
             # 保存执行数据
             if pipeline_result.get("data"):
+
+                # TODO:
+                # 1. 将原始查询结果保存到 sql_exec_result 字段中
+                # 2. 将每条数据的机构编码和指标编码映射成中文名
+                # 3. 将处理后的结果保存到 data 字段中
+                # sql_exec_data = pipeline_result["data"]
+                # # 将 json 字符串转成python对象
+                # sql_exec_data = json.loads(sql_exec_data)
+                # for _data in sql_exec_data:
+                #     # TODO:
+                #     # 1) 将机构编码映射成机构名称，从数据库中查
+                #     # 2) 将指标编码映射成指标名称，从入参中来
+                #     pass
+
                 import orjson
                 save_sql_exec_data(session, record_id, orjson.dumps(pipeline_result["data"]).decode())
             
             # 保存图表信息
             if pipeline_result.get("parameters"):
+
+                # TODO：
+                # 1. 从 RESP 字段中解析出来查询的字段，也就是表头，然后映射成中文名
+                # 2. 构造出参结构："chart": {"type": "", "title": "", "columns": [{"name":"机构名称", "value": "org_ecd"}]}
+                # 3. 将结果存入 chart 中
+
                 import orjson
                 import json
                 try:
                     # 尝试将parameters解析为JSON对象
                     params_dict = json.loads(pipeline_result["parameters"])
+                    resp_fields = params_dict.get("RESP", [])
+                    columns = []
+                    for field in resp_fields:
+                        field_name = IDX_COLUMNS.get(field, field)
+                        columns.append({"name": field_name, "value": field})
                     chart_data = {
                         "type": "table",
-                        "columns": [{"name": str(key), "value": str(key)} for key in params_dict.keys()]
+                        "title": "",
+                        "columns": columns
                     }
                 except (json.JSONDecodeError, TypeError):
                     # 如果无法解析为JSON对象，则将其视为字符串
                     chart_data = {
                         "type": "table",
-                        "columns": [{"name": "parameters", "value": "parameters"}]
+                        "title": "",
+                        "columns": []
                     }
                 save_chart(session, record_id, orjson.dumps(chart_data).decode())
         else:

@@ -53,6 +53,7 @@ warnings.filterwarnings("ignore")
 
 base_message_count_limit = 6
 
+# 创建一个线程池，用于执行异步任务，大小为max_workers
 executor = ThreadPoolExecutor(max_workers=200)
 
 dynamic_ds_types = [1, 3]
@@ -948,6 +949,7 @@ class LLMService:
                        finish_step: ChatFinishStep = ChatFinishStep.GENERATE_CHART):
         if in_chat:
             stream = True
+        # 使用 submit 提交任务，
         self.future = executor.submit(self.run_task_cache, in_chat, stream, finish_step)
 
     def run_task_cache(self, in_chat: bool = True, stream: bool = True,
@@ -1045,7 +1047,7 @@ class LLMService:
             # 记录SQL日志
             SQLBotLogUtil.info(full_sql_text)
 
-            # 获取图表类型
+            # 获取图表类型；这里是从 llm 生成的 SQL 结果中解析数据结构得到的图表类型，也就是说，在生成 SQL 的提示词中已经要求 llm 生成了推荐的图表类型
             chart_type = self.get_chart_type_from_sql_answer(full_sql_text)
 
             # 判断是否使用动态数据源或页面嵌入
@@ -1084,7 +1086,7 @@ class LLMService:
             if not stream:
                 json_result['sql'] = sql
 
-            # 格式化SQL
+            # 格式化SQL;sqlparse是一个用于解析和格式化 SQL 语句的 Python 库，它能将 SQL 语句解析成结构化的格式，便于分析、修改或生成 SQL。‌
             format_sql = sqlparse.format(sql, reindent=True)
             if in_chat:
                 yield 'data:' + orjson.dumps({'content': format_sql, 'type': 'sql'}).decode() + '\n\n'

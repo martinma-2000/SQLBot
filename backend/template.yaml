@@ -730,6 +730,20 @@ template:
               - current_timestamp()
               - localtimestamp()
               - sysdate()
+              - date_add()
+              - date_sub()
+              - date_trunc()
+              - day()
+              - current_user()
+              - current_role()
+              - current_database()
+              - current_schema()
+              - current_catalog()
+              - current_path()
+              - current_timezone()
+              - current_timestamp_ntz()
+              - current_timestamp_ltz()
+              - current_timestamp_tz()
             - 生成的格式化语法需要适配对应的数据库引擎。
         </rule>
         <rule>
