@@ -93,9 +93,10 @@ async def run_indicator_pipeline(request: IndicatorPipelineRequest, session: Ses
         # rag_retrieved来自parsed_knowledge
         org_code = knowledge_response.organization_info[0].get("org_num") if knowledge_response.organization_info else "000000"
         rag_retrieved = str(knowledge_response.parsed_knowledge)  # 将解析后的知识转换为字符串
+        index_code = knowledge_response.parsed_knowledge[0].get("id") if knowledge_response.parsed_knowledge else "ELC_00000"
         
         # 执行指标管道，传入问题、组织代码和检索到的知识
-        pipeline_result = execute_indicator_pipeline(request.question, org_code, rag_retrieved)
+        pipeline_result = execute_indicator_pipeline(request.question, org_code, rag_retrieved,index_code)
         
         # 保存执行结果到聊天记录中
         if pipeline_result.get("success"):
@@ -123,7 +124,7 @@ async def run_indicator_pipeline(request: IndicatorPipelineRequest, session: Ses
                     # 如果无法解析为JSON对象，则将其视为字符串
                     chart_data = {
                         "type": "table",
-                        "columns": [{"name": "parameters", "value": "parameters"}]
+                        "columns": [{"name": "parameters", "value": pipeline_result["parameters"]}]
                     }
                 save_chart(session, record_id, orjson.dumps(chart_data).decode())
         else:
